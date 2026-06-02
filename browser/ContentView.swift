@@ -10,13 +10,7 @@ struct ContentView: View {
     @State private var isSidebarVisible = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            if isSidebarVisible {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: 200)
-            }
-
+        ZStack(alignment: .leading) {
             ZStack {
                 KeyboardCaptureView {
                     isSidebarVisible.toggle()
@@ -26,7 +20,13 @@ struct ContentView: View {
                 Text("Press Cmd + \\")
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if isSidebarVisible {
+                SidebarView()
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
         }
+        .animation(.easeInOut, value: isSidebarVisible)
     }
 }
 
