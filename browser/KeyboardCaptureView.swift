@@ -10,10 +10,14 @@ import UIKit
 
 struct KeyboardCaptureView: UIViewRepresentable {
     let onToggleSidebar: () -> Void
+    let onToggleSpotlight: () -> Void
+    let onDismissSpotlight: () -> Void
 
     func makeUIView(context: Context) -> KeyCaptureUIView {
         let view = KeyCaptureUIView()
         view.onToggleSidebar = onToggleSidebar
+        view.onToggleSpotlight = onToggleSpotlight
+        view.onDismissSpotlight = onDismissSpotlight
 
         DispatchQueue.main.async {
             view.becomeFirstResponder()
@@ -24,6 +28,8 @@ struct KeyboardCaptureView: UIViewRepresentable {
 
     func updateUIView(_ uiView: KeyCaptureUIView, context: Context) {
         uiView.onToggleSidebar = onToggleSidebar
+        uiView.onToggleSpotlight = onToggleSpotlight
+        uiView.onDismissSpotlight = onDismissSpotlight
 
         if !uiView.isFirstResponder {
             DispatchQueue.main.async {
@@ -35,8 +41,35 @@ struct KeyboardCaptureView: UIViewRepresentable {
 
 final class KeyCaptureUIView: UIView {
     var onToggleSidebar: (() -> Void)?
+    var onToggleSpotlight: (() -> Void)?
+    var onDismissSpotlight: (() -> Void)?
 
     override var canBecomeFirstResponder: Bool { true }
+
+    override var keyCommands: [UIKeyCommand]? {
+        [
+            UIKeyCommand(
+                input: "\\",
+                modifierFlags: [.command],
+                action: #selector(handleSidebarToggle(_:))
+            ),
+            UIKeyCommand(
+                input: "l",
+                modifierFlags: [.command],
+                action: #selector(toggleSpotlight(_:))
+            ),
+            UIKeyCommand(
+                input: " ",
+                modifierFlags: [.command, .shift],
+                action: #selector(toggleSpotlight(_:))
+            ),
+            UIKeyCommand(
+                input: UIKeyCommand.inputEscape,
+                modifierFlags: [],
+                action: #selector(dismissSpotlight(_:))
+            ),
+        ]
+    }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -46,21 +79,15 @@ final class KeyCaptureUIView: UIView {
         }
     }
 
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        for press in presses {
-            guard let key = press.key else {
-                continue
-            }
+    @objc private func handleSidebarToggle(_ sender: UIKeyCommand) {
+        onToggleSidebar?()
+    }
 
-            let isCommandPressed = key.modifierFlags.contains(.command)
-            let isBackslash = key.charactersIgnoringModifiers == "\\"
+    @objc private func toggleSpotlight(_ sender: UIKeyCommand) {
+        onToggleSpotlight?()
+    }
 
-            if isCommandPressed && isBackslash {
-                onToggleSidebar?()
-                return
-            }
-        }
-
-        super.pressesBegan(presses, with: event)
+    @objc private func dismissSpotlight(_ sender: UIKeyCommand) {
+        onDismissSpotlight?()
     }
 }
