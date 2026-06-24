@@ -18,41 +18,20 @@ struct ContentView: View {
             mainContent
             sidebar
             spotlight
+            keyboardCaptureLayer
         }
     }
 
     private var mainContent: some View {
         ZStack {
-            BrowserWebView(url: $currentPageURL, currentURLString: $currentURLString)
-                .ignoresSafeArea()
-
-            KeyboardCaptureView(
-                onToggleSidebar: {
-                    DispatchQueue.main.async {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            isSidebarVisible.toggle()
-                        }
-                    }
-                },
-                onToggleSpotlight: {
-                    DispatchQueue.main.async {
-                        withAnimation(.easeInOut(duration: 0.1)) {
-                            spotlightText = currentURLString
-                            isSpotlightVisible.toggle()
-                        }
-                    }
-                },
-                onDismissSpotlight: {
-                    guard isSpotlightVisible else { return }
-
-                    DispatchQueue.main.async {
-                        withAnimation(.easeInOut(duration: 0.1)) {
-                            isSpotlightVisible = false
-                        }
-                    }
-                }
+            BrowserWebView(
+                url: $currentPageURL,
+                currentURLString: $currentURLString,
+                onToggleSidebar: toggleSidebar,
+                onToggleSpotlight: toggleSpotlight,
+                onDismissSpotlight: dismissSpotlight
             )
-            .frame(width: 0, height: 0)
+                .ignoresSafeArea()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -73,12 +52,10 @@ struct ContentView: View {
                 text: $spotlightText,
                 onSubmit: {
                     let raw = spotlightText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let normalized = raw.hasPrefix("http") ? raw : "https://\(raw)"
-
-                    guard let url = URL(string: normalized) else { return }
+                    guard let url = destinationURL(for: raw) else { return }
 
                     currentPageURL = url
-                    currentURLString = normalized
+                    currentURLString = url.absoluteString
                     isSpotlightVisible = false
                 },
                 onDismiss: {
@@ -89,6 +66,64 @@ struct ContentView: View {
             )
             .zIndex(1)
         }
+    }
+
+    private var keyboardCaptureLayer: some View {
+        KeyboardCaptureView(
+            onToggleSidebar: toggleSidebar,
+            onToggleSpotlight: toggleSpotlight,
+            onDismissSpotlight: dismissSpotlight
+        )
+        .frame(width: 0, height: 0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func toggleSidebar() {
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                isSidebarVisible.toggle()
+            }
+        }
+    }
+
+    private func toggleSpotlight() {
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.1)) {
+                spotlightText = currentURLString
+                isSpotlightVisible.toggle()
+            }
+        }
+    }
+
+    private func dismissSpotlight() {
+        guard isSpotlightVisible else { return }
+
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isSpotlightVisible = false
+            }
+        }
+    }
+
+    private func destinationURL(for rawInput: String) -> URL? {
+        guard !rawInput.isEmpty else { return nil }
+
+        if let explicitURL = URL(string: rawInput), explicitURL.scheme != nil {
+            return explicitURL
+        }
+
+        if looksLikeHost(rawInput), let hostURL = URL(string: "https://\(rawInput)") {
+            return hostURL
+        }
+
+        var components = URLComponents(string: "https://www.google.com/search")
+        components?.queryItems = [URLQueryItem(name: "q", value: rawInput)]
+        return components?.url
+    }
+
+    private func looksLikeHost(_ input: String) -> Bool {
+        !input.contains(" ") && input.contains(".")
     }
 }
 

@@ -47,28 +47,11 @@ final class KeyCaptureUIView: UIView {
     override var canBecomeFirstResponder: Bool { true }
 
     override var keyCommands: [UIKeyCommand]? {
-        [
-            UIKeyCommand(
-                input: "\\",
-                modifierFlags: [.command],
-                action: #selector(handleSidebarToggle(_:))
-            ),
-            UIKeyCommand(
-                input: "l",
-                modifierFlags: [.command],
-                action: #selector(toggleSpotlight(_:))
-            ),
-            UIKeyCommand(
-                input: " ",
-                modifierFlags: [.command, .shift],
-                action: #selector(toggleSpotlight(_:))
-            ),
-            UIKeyCommand(
-                input: UIKeyCommand.inputEscape,
-                modifierFlags: [],
-                action: #selector(dismissSpotlight(_:))
-            ),
-        ]
+        BrowserKeyboardCommands.makeKeyCommands(
+            sidebarSelector: #selector(handleSidebarToggle(_:)),
+            spotlightSelector: #selector(toggleSpotlight(_:)),
+            dismissSelector: #selector(dismissSpotlight(_:))
+        )
     }
 
     override func didMoveToWindow() {

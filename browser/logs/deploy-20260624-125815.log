@@ -1,0 +1,11 @@
+Logging deploy output to ./logs/deploy-20260624-125815.log
+[0;34m🚀 Step 1: Building browser...[0m
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -scheme browser -destination id=00008142-001E415022F3801C -derivedDataPath ./build clean build
+
+2026-06-24 12:58:15.677 xcodebuild[67979:8465894] Writing error result bundle to /var/folders/rz/2f_pm8p14mj6rlym7q13h_fw0000gn/T/ResultBundle_2026-24-06_12-58-0015.xcresult
+xcodebuild: error: The directory /Users/edwinolivares/dev/browser/browser does not contain an Xcode project, workspace or package.
+
+[0;31mBuild failed during: build[0m
+Exit code: 66
+Full log: ./logs/deploy-20260624-125815.log
