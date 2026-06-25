@@ -7,7 +7,25 @@
 import SwiftUI
 
 struct SpotlightView: View {
+    private enum Style {
+        static let fieldWidth: CGFloat = 620
+        static let fieldHeight: CGFloat = 72
+        static let cornerRadius: CGFloat = 18
+        static let horizontalPadding: CGFloat = 24
+        static let fontSize: CGFloat = 24
+        static let fontName = "LilexNFM-Regular"
+        static let backgroundColor = Color.black.opacity(0.82)
+        static let borderColor = Color.white.opacity(0.18)
+        static let textColor = Color.white
+    }
+
     @Binding var text: String
+    var placeholder = ""
+    var trailingText: String? = nil
+    var onTextChange: ((String) -> Void)? = nil
+    var onSidebarShortcut: (() -> Void)? = nil
+    var onFindShortcut: (() -> Void)? = nil
+    var onSpotlightShortcut: (() -> Void)? = nil
     let onSubmit: () -> Void
     let onDismiss: () -> Void
     @FocusState private var isTextFieldFocused: Bool
@@ -15,20 +33,57 @@ struct SpotlightView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                TextField("", text: $text, onCommit: onSubmit)
-                    .focused($isTextFieldFocused)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 20)
-                    .frame(width: 620, height: 72)
-                    .background(Color.black.opacity(0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                HStack(spacing: 16) {
+                    TextField(placeholder, text: $text, onCommit: onSubmit)
+                        .focused($isTextFieldFocused)
+                        .textFieldStyle(.plain)
+                        .font(.custom(Style.fontName, size: Style.fontSize))
+                        .foregroundStyle(Style.textColor)
+                        .onChange(of: text) { _, newValue in
+                            onTextChange?(newValue)
+                        }
 
-                Button("") {
-                    onDismiss()
+                    if let trailingText {
+                        Text(trailingText)
+                            .font(.custom(Style.fontName, size: 18))
+                            .foregroundStyle(Color.white.opacity(0.6))
+                    }
                 }
-                .keyboardShortcut("l", modifiers: [.command])
-                .opacity(0.001)
-                .accessibilityHidden(true)
+                .padding(.horizontal, Style.horizontalPadding)
+                .frame(width: Style.fieldWidth, height: Style.fieldHeight)
+                .background(Style.backgroundColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Style.cornerRadius, style: .continuous)
+                        .stroke(Style.borderColor, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: Style.cornerRadius, style: .continuous))
+
+                if let onSpotlightShortcut {
+                    Button("") {
+                        onSpotlightShortcut()
+                    }
+                    .keyboardShortcut("l", modifiers: [.command])
+                    .opacity(0.001)
+                    .accessibilityHidden(true)
+                }
+
+                if let onFindShortcut {
+                    Button("") {
+                        onFindShortcut()
+                    }
+                    .keyboardShortcut("f", modifiers: [.command])
+                    .opacity(0.001)
+                    .accessibilityHidden(true)
+                }
+
+                if let onSidebarShortcut {
+                    Button("") {
+                        onSidebarShortcut()
+                    }
+                    .keyboardShortcut("/", modifiers: [.command])
+                    .opacity(0.001)
+                    .accessibilityHidden(true)
+                }
 
                 Button("") {
                     onDismiss()
@@ -36,6 +91,7 @@ struct SpotlightView: View {
                 .keyboardShortcut(.escape, modifiers: [])
                 .opacity(0.001)
                 .accessibilityHidden(true)
+
             }
             .position(
                 x: geometry.size.width / 2,
@@ -43,11 +99,21 @@ struct SpotlightView: View {
             )
         }
         .onAppear {
-            DispatchQueue.main.async {
-                isTextFieldFocused = true
-            }
+            focusTextField()
+        }
+        .onChange(of: text) { _, _ in
+            focusTextField()
+        }
+        .onChange(of: trailingText ?? "") { _, _ in
+            focusTextField()
         }
         .ignoresSafeArea()
+    }
+
+    private func focusTextField() {
+        DispatchQueue.main.async {
+            isTextFieldFocused = true
+        }
     }
 }
 

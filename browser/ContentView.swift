@@ -7,17 +7,27 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var isSidebarVisible = false
-    @State private var isSpotlightVisible = false
+    private enum ActiveOverlay {
+        case none
+        case sidebar
+        case spotlight
+        case find
+    }
+
+    @State private var activeOverlay: ActiveOverlay = .none
     @State private var currentURLString = "https://www.reddit.com"
     @State private var spotlightText = ""
+    @State private var findText = ""
+    @State private var findStatus = BrowserFindStatus.empty
     @State private var currentPageURL = URL(string: "https://www.reddit.com")!
+    private let navigationController = BrowserNavigationController()
 
     var body: some View {
         ZStack(alignment: .leading) {
             mainContent
             sidebar
             spotlight
+            findOverlay
             keyboardCaptureLayer
         }
     }
@@ -27,9 +37,7 @@ struct ContentView: View {
             BrowserWebView(
                 url: $currentPageURL,
                 currentURLString: $currentURLString,
-                onToggleSidebar: toggleSidebar,
-                onToggleSpotlight: toggleSpotlight,
-                onDismissSpotlight: dismissSpotlight
+                navigationController: navigationController
             )
                 .ignoresSafeArea()
         }
@@ -38,7 +46,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var sidebar: some View {
-        if isSidebarVisible {
+        if activeOverlay == .sidebar {
             SidebarView()
                 .transition(.move(edge: .leading))
                 .zIndex(1)
@@ -47,21 +55,51 @@ struct ContentView: View {
 
     @ViewBuilder
     private var spotlight: some View {
-        if isSpotlightVisible {
+        if activeOverlay == .spotlight {
             SpotlightView(
                 text: $spotlightText,
+                onSidebarShortcut: toggleSidebar,
+                onFindShortcut: toggleFind,
+                onSpotlightShortcut: toggleSpotlight,
                 onSubmit: {
                     let raw = spotlightText.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard let url = destinationURL(for: raw) else { return }
 
                     currentPageURL = url
                     currentURLString = url.absoluteString
-                    isSpotlightVisible = false
+                    activeOverlay = .none
                 },
                 onDismiss: {
                     withAnimation(.easeInOut(duration: 0.1)) {
-                        isSpotlightVisible = false
+                        activeOverlay = .none
                     }
+                }
+            )
+            .zIndex(1)
+        }
+    }
+
+    @ViewBuilder
+    private var findOverlay: some View {
+        if activeOverlay == .find {
+            SpotlightView(
+                text: $findText,
+                placeholder: "Find on page",
+                trailingText: findStatus.total > 0 ? "\(findStatus.current)/\(findStatus.total)" : nil,
+                onTextChange: updateFindResults,
+                onSidebarShortcut: toggleSidebar,
+                onFindShortcut: toggleFind,
+                onSpotlightShortcut: toggleSpotlight,
+                onSubmit: {
+                    navigationController.findNext { status in
+                        findStatus = status
+                    }
+                },
+                onDismiss: {
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        activeOverlay = .none
+                    }
+                    clearFindState()
                 }
             )
             .zIndex(1)
@@ -72,9 +110,13 @@ struct ContentView: View {
         KeyboardCaptureView(
             onToggleSidebar: toggleSidebar,
             onToggleSpotlight: toggleSpotlight,
-            onDismissSpotlight: dismissSpotlight
+            onToggleFind: toggleFind,
+            onDismissSpotlight: dismissSpotlight,
+            onGoBack: goBack,
+            onGoForward: goForward,
+            onReload: reload
         )
-        .frame(width: 0, height: 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -82,27 +124,100 @@ struct ContentView: View {
     private func toggleSidebar() {
         DispatchQueue.main.async {
             withAnimation(.easeInOut(duration: 0.25)) {
-                isSidebarVisible.toggle()
+                if activeOverlay == .sidebar {
+                    activeOverlay = .none
+                } else {
+                    activeOverlay = .sidebar
+                    clearFindState()
+                }
             }
         }
     }
 
     private func toggleSpotlight() {
+        let shouldClearFind = activeOverlay == .find || !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
+
         DispatchQueue.main.async {
             withAnimation(.easeInOut(duration: 0.1)) {
                 spotlightText = currentURLString
-                isSpotlightVisible.toggle()
+                if activeOverlay == .spotlight {
+                    activeOverlay = .none
+                } else {
+                    activeOverlay = .spotlight
+                }
+            }
+        }
+
+        if shouldClearFind {
+            clearFindState()
+        }
+    }
+
+    private func toggleFind() {
+        let shouldClearExistingFind = !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
+
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.1)) {
+                if activeOverlay == .find {
+                    if findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        activeOverlay = .none
+                        clearFindState()
+                    } else {
+                        clearFindState()
+                    }
+                    return
+                }
+
+                activeOverlay = .find
+                findText = ""
+                findStatus = .empty
+            }
+        }
+
+        if shouldClearExistingFind {
+            clearFindState()
+        } else {
+            DispatchQueue.main.async {
+                navigationController.clearFind()
             }
         }
     }
 
     private func dismissSpotlight() {
-        guard isSpotlightVisible else { return }
+        guard activeOverlay != .none else { return }
 
         DispatchQueue.main.async {
             withAnimation(.easeInOut(duration: 0.1)) {
-                isSpotlightVisible = false
+                activeOverlay = .none
             }
+        }
+
+        clearFindState()
+    }
+
+    private func goBack() {
+        navigationController.goBack()
+    }
+
+    private func goForward() {
+        navigationController.goForward()
+    }
+
+    private func reload() {
+        navigationController.reload()
+    }
+
+    private func updateFindResults(_ text: String) {
+        navigationController.find(text) { status in
+            findStatus = status
+        }
+    }
+
+    private func clearFindState() {
+        findText = ""
+        findStatus = .empty
+        DispatchQueue.main.async {
+            navigationController.clearFind()
         }
     }
 

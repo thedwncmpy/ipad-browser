@@ -9,11 +9,15 @@ enum BrowserKeyboardCommands {
     static func makeKeyCommands(
         sidebarSelector: Selector,
         spotlightSelector: Selector,
-        dismissSelector: Selector
+        findSelector: Selector,
+        dismissSelector: Selector,
+        backSelector: Selector,
+        forwardSelector: Selector,
+        reloadSelector: Selector
     ) -> [UIKeyCommand] {
         [
             UIKeyCommand(
-                input: "\\",
+                input: "/",
                 modifierFlags: [.command],
                 action: sidebarSelector
             ),
@@ -21,6 +25,11 @@ enum BrowserKeyboardCommands {
                 input: "l",
                 modifierFlags: [.command],
                 action: spotlightSelector
+            ),
+            UIKeyCommand(
+                input: "f",
+                modifierFlags: [.command],
+                action: findSelector
             ),
             UIKeyCommand(
                 input: " ",
@@ -31,6 +40,21 @@ enum BrowserKeyboardCommands {
                 input: UIKeyCommand.inputEscape,
                 modifierFlags: [],
                 action: dismissSelector
+            ),
+            UIKeyCommand(
+                input: "[",
+                modifierFlags: [.command],
+                action: backSelector
+            ),
+            UIKeyCommand(
+                input: "]",
+                modifierFlags: [.command],
+                action: forwardSelector
+            ),
+            UIKeyCommand(
+                input: "r",
+                modifierFlags: [.command],
+                action: reloadSelector
             ),
         ]
     }
