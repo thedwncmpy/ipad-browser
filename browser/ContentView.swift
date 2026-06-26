@@ -14,13 +14,23 @@ struct ContentView: View {
         case find
     }
 
+    private enum ShortcutAction {
+        case sidebar
+        case spotlight
+        case find
+        case dismiss
+    }
+
     @State private var activeOverlay: ActiveOverlay = .none
     @State private var currentURLString = "https://www.reddit.com"
     @State private var spotlightText = ""
     @State private var findText = ""
     @State private var findStatus = BrowserFindStatus.empty
     @State private var currentPageURL = URL(string: "https://www.reddit.com")!
+    @State private var lastShortcutAction: ShortcutAction?
+    @State private var lastShortcutTimestamp = Date.distantPast
     private let navigationController = BrowserNavigationController()
+    private let shortcutCoalescingInterval: TimeInterval = 0.08
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -37,7 +47,14 @@ struct ContentView: View {
             BrowserWebView(
                 url: $currentPageURL,
                 currentURLString: $currentURLString,
-                navigationController: navigationController
+                navigationController: navigationController,
+                onToggleSidebar: toggleSidebar,
+                onToggleSpotlight: toggleSpotlight,
+                onToggleFind: toggleFind,
+                onDismissOverlay: dismissSpotlight,
+                onGoBack: goBack,
+                onGoForward: goForward,
+                onReload: reload
             )
                 .ignoresSafeArea()
         }
@@ -47,7 +64,20 @@ struct ContentView: View {
     @ViewBuilder
     private var sidebar: some View {
         if activeOverlay == .sidebar {
-            SidebarView()
+            SidebarView(
+                urlText: $currentURLString,
+                currentPageURL: currentPageURL,
+                onSubmit: {
+                    let raw = currentURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard let url = destinationURL(for: raw) else { return }
+
+                    currentPageURL = url
+                    currentURLString = url.absoluteString
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        activeOverlay = .none
+                    }
+                }
+            )
                 .transition(.move(edge: .leading))
                 .zIndex(1)
         }
@@ -58,6 +88,8 @@ struct ContentView: View {
         if activeOverlay == .spotlight {
             SpotlightView(
                 text: $spotlightText,
+                pageURL: currentPageURL,
+                showsFavicon: true,
                 onSidebarShortcut: toggleSidebar,
                 onFindShortcut: toggleFind,
                 onSpotlightShortcut: toggleSpotlight,
@@ -79,31 +111,29 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private var findOverlay: some View {
-        if activeOverlay == .find {
-            SpotlightView(
-                text: $findText,
-                placeholder: "Find on page",
-                trailingText: findStatus.total > 0 ? "\(findStatus.current)/\(findStatus.total)" : nil,
-                onTextChange: updateFindResults,
-                onSidebarShortcut: toggleSidebar,
-                onFindShortcut: toggleFind,
-                onSpotlightShortcut: toggleSpotlight,
-                onSubmit: {
-                    navigationController.findNext { status in
-                        findStatus = status
-                    }
-                },
-                onDismiss: {
-                    withAnimation(.easeInOut(duration: 0.1)) {
-                        activeOverlay = .none
-                    }
-                    clearFindState()
+        SpotlightView(
+            text: $findText,
+            isVisible: activeOverlay == .find,
+            placeholder: "Find on page",
+            trailingText: findStatus.total > 0 ? "\(findStatus.current)/\(findStatus.total)" : nil,
+            onTextChange: updateFindResults,
+            onSidebarShortcut: toggleSidebar,
+            onFindShortcut: toggleFind,
+            onSpotlightShortcut: toggleSpotlight,
+            onSubmit: {
+                navigationController.findNext { status in
+                    findStatus = status
                 }
-            )
-            .zIndex(1)
-        }
+            },
+            onDismiss: {
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    activeOverlay = .none
+                }
+                clearFindState()
+            }
+        )
+        .zIndex(activeOverlay == .find ? 1 : -1)
     }
 
     private var keyboardCaptureLayer: some View {
@@ -122,29 +152,30 @@ struct ContentView: View {
     }
 
     private func toggleSidebar() {
-        DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                if activeOverlay == .sidebar {
-                    activeOverlay = .none
-                } else {
-                    activeOverlay = .sidebar
-                    clearFindState()
-                }
+        guard canHandleShortcut(.sidebar) else { return }
+
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if activeOverlay == .sidebar {
+                activeOverlay = .none
+            } else {
+                activeOverlay = .sidebar
             }
         }
+
+        clearFindState()
     }
 
     private func toggleSpotlight() {
+        guard canHandleShortcut(.spotlight) else { return }
+
         let shouldClearFind = activeOverlay == .find || !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
 
-        DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.1)) {
-                spotlightText = currentURLString
-                if activeOverlay == .spotlight {
-                    activeOverlay = .none
-                } else {
-                    activeOverlay = .spotlight
-                }
+        withAnimation(.easeInOut(duration: 0.1)) {
+            spotlightText = currentURLString
+            if activeOverlay == .spotlight {
+                activeOverlay = .none
+            } else {
+                activeOverlay = .spotlight
             }
         }
 
@@ -154,42 +185,31 @@ struct ContentView: View {
     }
 
     private func toggleFind() {
-        let shouldClearExistingFind = !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
+        guard canHandleShortcut(.find) else { return }
 
-        DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.1)) {
-                if activeOverlay == .find {
-                    if findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        activeOverlay = .none
-                        clearFindState()
-                    } else {
-                        clearFindState()
-                    }
-                    return
+        let hasExistingFind = !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
+
+        withAnimation(.easeInOut(duration: 0.1)) {
+            if activeOverlay == .find {
+                if findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    activeOverlay = .none
                 }
-
+            } else {
                 activeOverlay = .find
-                findText = ""
-                findStatus = .empty
             }
         }
 
-        if shouldClearExistingFind {
+        if activeOverlay == .find || hasExistingFind {
             clearFindState()
-        } else {
-            DispatchQueue.main.async {
-                navigationController.clearFind()
-            }
         }
     }
 
     private func dismissSpotlight() {
         guard activeOverlay != .none else { return }
+        guard canHandleShortcut(.dismiss) else { return }
 
-        DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.1)) {
-                activeOverlay = .none
-            }
+        withAnimation(.easeInOut(duration: 0.1)) {
+            activeOverlay = .none
         }
 
         clearFindState()
@@ -216,9 +236,7 @@ struct ContentView: View {
     private func clearFindState() {
         findText = ""
         findStatus = .empty
-        DispatchQueue.main.async {
-            navigationController.clearFind()
-        }
+        navigationController.clearFind()
     }
 
     private func destinationURL(for rawInput: String) -> URL? {
@@ -239,6 +257,18 @@ struct ContentView: View {
 
     private func looksLikeHost(_ input: String) -> Bool {
         !input.contains(" ") && input.contains(".")
+    }
+
+    private func canHandleShortcut(_ action: ShortcutAction) -> Bool {
+        let now = Date()
+        let isDuplicate = lastShortcutAction == action &&
+            now.timeIntervalSince(lastShortcutTimestamp) < shortcutCoalescingInterval
+
+        guard !isDuplicate else { return false }
+
+        lastShortcutAction = action
+        lastShortcutTimestamp = now
+        return true
     }
 }
 

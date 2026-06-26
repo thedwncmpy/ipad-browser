@@ -20,8 +20,11 @@ struct SpotlightView: View {
     }
 
     @Binding var text: String
+    var isVisible = true
     var placeholder = ""
     var trailingText: String? = nil
+    var pageURL: URL? = nil
+    var showsFavicon = false
     var onTextChange: ((String) -> Void)? = nil
     var onSidebarShortcut: (() -> Void)? = nil
     var onFindShortcut: (() -> Void)? = nil
@@ -34,6 +37,10 @@ struct SpotlightView: View {
         GeometryReader { geometry in
             ZStack {
                 HStack(spacing: 16) {
+                    if showsFavicon {
+                        FaviconView(pageURL: pageURL, typedText: text)
+                    }
+
                     TextField(placeholder, text: $text, onCommit: onSubmit)
                         .focused($isTextFieldFocused)
                         .textFieldStyle(.plain)
@@ -98,14 +105,25 @@ struct SpotlightView: View {
                 y: geometry.size.height * 0.25
             )
         }
+        .opacity(isVisible ? 1 : 0)
+        .allowsHitTesting(isVisible)
+        .accessibilityHidden(!isVisible)
         .onAppear {
-            focusTextField()
+            if isVisible {
+                focusTextField()
+            }
         }
-        .onChange(of: text) { _, _ in
-            focusTextField()
+        .onChange(of: isVisible) { _, newValue in
+            if newValue {
+                focusTextField()
+            } else {
+                isTextFieldFocused = false
+            }
         }
         .onChange(of: trailingText ?? "") { _, _ in
-            focusTextField()
+            if isVisible {
+                focusTextField()
+            }
         }
         .ignoresSafeArea()
     }

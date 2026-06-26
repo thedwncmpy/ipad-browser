@@ -7,6 +7,56 @@
 import SwiftUI
 import WebKit
 
+final class BrowserWKWebView: WKWebView {
+    var onToggleSidebar: (() -> Void)?
+    var onToggleSpotlight: (() -> Void)?
+    var onToggleFind: (() -> Void)?
+    var onDismissOverlay: (() -> Void)?
+    var onGoBackShortcut: (() -> Void)?
+    var onGoForwardShortcut: (() -> Void)?
+    var onReloadShortcut: (() -> Void)?
+
+    override var keyCommands: [UIKeyCommand]? {
+        BrowserKeyboardCommands.makeKeyCommands(
+            sidebarSelector: #selector(handleSidebarToggle(_:)),
+            spotlightSelector: #selector(handleSpotlightToggle(_:)),
+            findSelector: #selector(handleFindToggle(_:)),
+            dismissSelector: #selector(handleDismiss(_:)),
+            backSelector: #selector(handleGoBack(_:)),
+            forwardSelector: #selector(handleGoForward(_:)),
+            reloadSelector: #selector(handleReload(_:))
+        )
+    }
+
+    @objc private func handleSidebarToggle(_ sender: UIKeyCommand) {
+        onToggleSidebar?()
+    }
+
+    @objc private func handleSpotlightToggle(_ sender: UIKeyCommand) {
+        onToggleSpotlight?()
+    }
+
+    @objc private func handleFindToggle(_ sender: UIKeyCommand) {
+        onToggleFind?()
+    }
+
+    @objc private func handleDismiss(_ sender: UIKeyCommand) {
+        onDismissOverlay?()
+    }
+
+    @objc private func handleGoBack(_ sender: UIKeyCommand) {
+        onGoBackShortcut?()
+    }
+
+    @objc private func handleGoForward(_ sender: UIKeyCommand) {
+        onGoForwardShortcut?()
+    }
+
+    @objc private func handleReload(_ sender: UIKeyCommand) {
+        onReloadShortcut?()
+    }
+}
+
 struct BrowserFindStatus: Equatable {
     let current: Int
     let total: Int
@@ -253,20 +303,29 @@ struct BrowserWebView: UIViewRepresentable {
     @Binding var url: URL
     @Binding var currentURLString: String
     let navigationController: BrowserNavigationController
+    let onToggleSidebar: () -> Void
+    let onToggleSpotlight: () -> Void
+    let onToggleFind: () -> Void
+    let onDismissOverlay: () -> Void
+    let onGoBack: () -> Void
+    let onGoForward: () -> Void
+    let onReload: () -> Void
 
-    func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
+    func makeUIView(context: Context) -> BrowserWKWebView {
+        let webView = BrowserWKWebView()
         webView.navigationDelegate = context.coordinator
         context.coordinator.attach(to: webView)
         context.coordinator.lastRequestedURL = url
         navigationController.attach(webView: webView)
+        configureShortcuts(for: webView)
         let request = URLRequest(url: url)
         webView.load(request)
         currentURLString = url.absoluteString
         return webView
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {
+    func updateUIView(_ uiView: BrowserWKWebView, context: Context) {
+        configureShortcuts(for: uiView)
         if context.coordinator.lastRequestedURL != url {
             context.coordinator.lastRequestedURL = url
             uiView.load(URLRequest(url: url))
@@ -275,6 +334,16 @@ struct BrowserWebView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(currentURLString: $currentURLString)
+    }
+
+    private func configureShortcuts(for webView: BrowserWKWebView) {
+        webView.onToggleSidebar = onToggleSidebar
+        webView.onToggleSpotlight = onToggleSpotlight
+        webView.onToggleFind = onToggleFind
+        webView.onDismissOverlay = onDismissOverlay
+        webView.onGoBackShortcut = onGoBack
+        webView.onGoForwardShortcut = onGoForward
+        webView.onReloadShortcut = onReload
     }
 }
 
@@ -305,6 +374,13 @@ extension BrowserWebView {
     BrowserWebView(
         url: .constant(URL(string: "https://www.reddit.com")!),
         currentURLString: .constant("https://www.reddit.com"),
-        navigationController: BrowserNavigationController()
+        navigationController: BrowserNavigationController(),
+        onToggleSidebar: {},
+        onToggleSpotlight: {},
+        onToggleFind: {},
+        onDismissOverlay: {},
+        onGoBack: {},
+        onGoForward: {},
+        onReload: {}
     )
 }
