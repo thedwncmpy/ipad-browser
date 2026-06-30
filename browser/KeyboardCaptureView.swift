@@ -9,6 +9,14 @@ import SwiftUI
 import UIKit
 
 struct KeyboardCaptureView: UIViewControllerRepresentable {
+    let onNewWorkspace: () -> Void
+    let onNewTab: () -> Void
+    let onCloseWorkspace: () -> Void
+    let onCloseTab: () -> Void
+    let onNextWorkspace: () -> Void
+    let onPreviousWorkspace: () -> Void
+    let onNextTab: () -> Void
+    let onPreviousTab: () -> Void
     let onToggleSidebar: () -> Void
     let onToggleSpotlight: () -> Void
     let onToggleFind: () -> Void
@@ -28,6 +36,14 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     }
 
     private func configure(_ controller: KeyCaptureViewController) {
+        controller.onNewWorkspace = onNewWorkspace
+        controller.onNewTab = onNewTab
+        controller.onCloseWorkspace = onCloseWorkspace
+        controller.onCloseTab = onCloseTab
+        controller.onNextWorkspace = onNextWorkspace
+        controller.onPreviousWorkspace = onPreviousWorkspace
+        controller.onNextTab = onNextTab
+        controller.onPreviousTab = onPreviousTab
         controller.onToggleSidebar = onToggleSidebar
         controller.onToggleSpotlight = onToggleSpotlight
         controller.onToggleFind = onToggleFind
@@ -40,6 +56,14 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
 }
 
 final class KeyCaptureViewController: UIViewController {
+    var onNewWorkspace: (() -> Void)?
+    var onNewTab: (() -> Void)?
+    var onCloseWorkspace: (() -> Void)?
+    var onCloseTab: (() -> Void)?
+    var onNextWorkspace: (() -> Void)?
+    var onPreviousWorkspace: (() -> Void)?
+    var onNextTab: (() -> Void)?
+    var onPreviousTab: (() -> Void)?
     var onToggleSidebar: (() -> Void)?
     var onToggleSpotlight: (() -> Void)?
     var onToggleFind: (() -> Void)?
@@ -52,6 +76,14 @@ final class KeyCaptureViewController: UIViewController {
 
     override var keyCommands: [UIKeyCommand]? {
         BrowserKeyboardCommands.makeKeyCommands(
+            newWorkspaceSelector: #selector(createNewWorkspace(_:)),
+            newTabSelector: #selector(createNewTab(_:)),
+            closeWorkspaceSelector: #selector(closeCurrentWorkspace(_:)),
+            closeTabSelector: #selector(closeCurrentTab(_:)),
+            nextWorkspaceSelector: #selector(selectNextWorkspace(_:)),
+            previousWorkspaceSelector: #selector(selectPreviousWorkspace(_:)),
+            nextTabSelector: #selector(selectNextTab(_:)),
+            previousTabSelector: #selector(selectPreviousTab(_:)),
             sidebarSelector: #selector(handleSidebarToggle(_:)),
             spotlightSelector: #selector(toggleSpotlight(_:)),
             findSelector: #selector(toggleFind(_:)),
@@ -60,6 +92,38 @@ final class KeyCaptureViewController: UIViewController {
             forwardSelector: #selector(goForward(_:)),
             reloadSelector: #selector(reloadPage(_:))
         )
+    }
+
+    @objc private func createNewTab(_ sender: UIKeyCommand) {
+        onNewTab?()
+    }
+
+    @objc private func createNewWorkspace(_ sender: UIKeyCommand) {
+        onNewWorkspace?()
+    }
+
+    @objc private func closeCurrentTab(_ sender: UIKeyCommand) {
+        onCloseTab?()
+    }
+
+    @objc private func closeCurrentWorkspace(_ sender: UIKeyCommand) {
+        onCloseWorkspace?()
+    }
+
+    @objc private func selectNextTab(_ sender: UIKeyCommand) {
+        onNextTab?()
+    }
+
+    @objc private func selectPreviousTab(_ sender: UIKeyCommand) {
+        onPreviousTab?()
+    }
+
+    @objc private func selectNextWorkspace(_ sender: UIKeyCommand) {
+        onNextWorkspace?()
+    }
+
+    @objc private func selectPreviousWorkspace(_ sender: UIKeyCommand) {
+        onPreviousWorkspace?()
     }
 
     override func loadView() {

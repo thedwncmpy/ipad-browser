@@ -6,6 +6,13 @@
 //
 import SwiftUI
 
+struct SidebarTabItem: Identifiable {
+    let id: UUID
+    let title: String
+    let currentURLString: String
+    let currentPageURL: URL
+}
+
 struct SidebarView: View {
     private enum Style {
         static let inset: CGFloat = 20
@@ -14,42 +21,38 @@ struct SidebarView: View {
         static let contentPadding: CGFloat = 18
         static let itemSpacing: CGFloat = 16
         static let fieldCornerRadius: CGFloat = 14
+        static let rowCornerRadius: CGFloat = 14
         static let backgroundColor = Color.black.opacity(0.82)
         static let borderColor = Color.white.opacity(0.18)
         static let fieldBackgroundColor = Color.white.opacity(0.06)
-        static let titleColor = Color.white.opacity(0.55)
+        static let rowBackgroundColor = Color.white.opacity(0.04)
+        static let activeRowBackgroundColor = Color.white.opacity(0.1)
+        static let titleColor = Color.white
+        static let secondaryColor = Color.white.opacity(0.55)
         static let valueColor = Color.white
-        static let titleFontSize: CGFloat = 12
+        static let titleFontSize: CGFloat = 15
         static let valueFontSize: CGFloat = 15
         static let fontName = "LilexNFM-Regular"
+        static let workspaceDotSize: CGFloat = 8
     }
 
     @Binding var urlText: String
     let currentPageURL: URL
+    let tabs: [SidebarTabItem]
+    let selectedTabID: UUID?
+    let workspaceCount: Int
+    let selectedWorkspaceIndex: Int
+    let onSelectTab: (UUID) -> Void
+    let onCloseTab: (UUID) -> Void
     let onSubmit: () -> Void
 
     var body: some View {
         GeometryReader { geometry in
             VStack(alignment: .leading, spacing: Style.itemSpacing) {
-                HStack(spacing: 12) {
-                    FaviconView(pageURL: currentPageURL, typedText: urlText)
-
-                    TextField("https://", text: $urlText, onCommit: onSubmit)
-                        .textFieldStyle(.plain)
-                        .font(.custom(Style.fontName, size: Style.valueFontSize))
-                        .foregroundStyle(Style.valueColor)
-                        .textSelection(.enabled)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-                .background(Style.fieldBackgroundColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Style.fieldCornerRadius, style: .continuous)
-                        .stroke(Style.borderColor, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: Style.fieldCornerRadius, style: .continuous))
-
+                urlField
+                tabList
                 Spacer(minLength: 0)
+                workspaceIndicator
             }
             .padding(Style.contentPadding)
             .frame(
@@ -68,12 +71,101 @@ struct SidebarView: View {
         }
         .ignoresSafeArea(edges: .vertical)
     }
+
+    private var urlField: some View {
+        HStack(spacing: 12) {
+            FaviconView(pageURL: currentPageURL, typedText: urlText)
+
+            TextField("https://", text: $urlText, onCommit: onSubmit)
+                .textFieldStyle(.plain)
+                .font(.custom(Style.fontName, size: Style.valueFontSize))
+                .foregroundStyle(Style.valueColor)
+                .textSelection(.enabled)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(Style.fieldBackgroundColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: Style.fieldCornerRadius, style: .continuous)
+                .stroke(Style.borderColor, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Style.fieldCornerRadius, style: .continuous))
+    }
+
+    private var tabList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(tabs) { tab in
+                    HStack(alignment: .top, spacing: 12) {
+                        Button {
+                            onSelectTab(tab.id)
+                        } label: {
+                            HStack(alignment: .center, spacing: 12) {
+                                FaviconView(pageURL: tab.currentPageURL, typedText: tab.currentURLString)
+
+                                Text(tab.title)
+                                    .font(.custom(Style.fontName, size: Style.titleFontSize))
+                                    .foregroundStyle(Style.titleColor)
+                                    .lineLimit(1)
+
+                                Spacer(minLength: 0)
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            onCloseTab(tab.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(Style.secondaryColor)
+                                .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(backgroundColor(for: tab.id))
+                    .clipShape(RoundedRectangle(cornerRadius: Style.rowCornerRadius, style: .continuous))
+                }
+            }
+        }
+    }
+
+    private var workspaceIndicator: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(0..<workspaceCount), id: \.self) { index in
+                Circle()
+                    .fill(index == selectedWorkspaceIndex ? Color.white : Color.white.opacity(0.24))
+                    .frame(width: Style.workspaceDotSize, height: Style.workspaceDotSize)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 4)
+    }
+
+    private func backgroundColor(for id: UUID) -> Color {
+        selectedTabID == id ? Style.activeRowBackgroundColor : Style.rowBackgroundColor
+    }
 }
 
 #Preview {
     SidebarView(
         urlText: .constant("https://www.reddit.com/r/swift"),
         currentPageURL: URL(string: "https://www.reddit.com/r/swift")!,
+        tabs: [
+            SidebarTabItem(
+                id: UUID(),
+                title: "Tab 1",
+                currentURLString: "browser://home",
+                currentPageURL: BrowserHomePage.url
+            )
+        ],
+        selectedTabID: nil,
+        workspaceCount: 3,
+        selectedWorkspaceIndex: 1,
+        onSelectTab: { _ in },
+        onCloseTab: { _ in },
         onSubmit: {}
     )
 }

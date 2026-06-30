@@ -65,39 +65,41 @@ struct SpotlightView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: Style.cornerRadius, style: .continuous))
 
-                if let onSpotlightShortcut {
-                    Button("") {
-                        onSpotlightShortcut()
+                if isVisible {
+                    if let onSpotlightShortcut {
+                        Button("") {
+                            onSpotlightShortcut()
+                        }
+                        .keyboardShortcut("l", modifiers: [.command])
+                        .opacity(0.001)
+                        .accessibilityHidden(true)
                     }
-                    .keyboardShortcut("l", modifiers: [.command])
+
+                    if let onFindShortcut {
+                        Button("") {
+                            onFindShortcut()
+                        }
+                        .keyboardShortcut("f", modifiers: [.command])
+                        .opacity(0.001)
+                        .accessibilityHidden(true)
+                    }
+
+                    if let onSidebarShortcut {
+                        Button("") {
+                            onSidebarShortcut()
+                        }
+                        .keyboardShortcut("/", modifiers: [.command])
+                        .opacity(0.001)
+                        .accessibilityHidden(true)
+                    }
+
+                    Button("") {
+                        onDismiss()
+                    }
+                    .keyboardShortcut(.escape, modifiers: [])
                     .opacity(0.001)
                     .accessibilityHidden(true)
                 }
-
-                if let onFindShortcut {
-                    Button("") {
-                        onFindShortcut()
-                    }
-                    .keyboardShortcut("f", modifiers: [.command])
-                    .opacity(0.001)
-                    .accessibilityHidden(true)
-                }
-
-                if let onSidebarShortcut {
-                    Button("") {
-                        onSidebarShortcut()
-                    }
-                    .keyboardShortcut("/", modifiers: [.command])
-                    .opacity(0.001)
-                    .accessibilityHidden(true)
-                }
-
-                Button("") {
-                    onDismiss()
-                }
-                .keyboardShortcut(.escape, modifiers: [])
-                .opacity(0.001)
-                .accessibilityHidden(true)
 
             }
             .position(

@@ -8,6 +8,14 @@ import SwiftUI
 import WebKit
 
 final class BrowserWKWebView: WKWebView {
+    var onNewWorkspace: (() -> Void)?
+    var onNewTab: (() -> Void)?
+    var onCloseWorkspace: (() -> Void)?
+    var onCloseTab: (() -> Void)?
+    var onNextWorkspace: (() -> Void)?
+    var onPreviousWorkspace: (() -> Void)?
+    var onNextTab: (() -> Void)?
+    var onPreviousTab: (() -> Void)?
     var onToggleSidebar: (() -> Void)?
     var onToggleSpotlight: (() -> Void)?
     var onToggleFind: (() -> Void)?
@@ -18,6 +26,14 @@ final class BrowserWKWebView: WKWebView {
 
     override var keyCommands: [UIKeyCommand]? {
         BrowserKeyboardCommands.makeKeyCommands(
+            newWorkspaceSelector: #selector(handleNewWorkspace(_:)),
+            newTabSelector: #selector(handleNewTab(_:)),
+            closeWorkspaceSelector: #selector(handleCloseWorkspace(_:)),
+            closeTabSelector: #selector(handleCloseTab(_:)),
+            nextWorkspaceSelector: #selector(handleNextWorkspace(_:)),
+            previousWorkspaceSelector: #selector(handlePreviousWorkspace(_:)),
+            nextTabSelector: #selector(handleNextTab(_:)),
+            previousTabSelector: #selector(handlePreviousTab(_:)),
             sidebarSelector: #selector(handleSidebarToggle(_:)),
             spotlightSelector: #selector(handleSpotlightToggle(_:)),
             findSelector: #selector(handleFindToggle(_:)),
@@ -26,6 +42,38 @@ final class BrowserWKWebView: WKWebView {
             forwardSelector: #selector(handleGoForward(_:)),
             reloadSelector: #selector(handleReload(_:))
         )
+    }
+
+    @objc private func handleNewTab(_ sender: UIKeyCommand) {
+        onNewTab?()
+    }
+
+    @objc private func handleNewWorkspace(_ sender: UIKeyCommand) {
+        onNewWorkspace?()
+    }
+
+    @objc private func handleCloseTab(_ sender: UIKeyCommand) {
+        onCloseTab?()
+    }
+
+    @objc private func handleCloseWorkspace(_ sender: UIKeyCommand) {
+        onCloseWorkspace?()
+    }
+
+    @objc private func handleNextTab(_ sender: UIKeyCommand) {
+        onNextTab?()
+    }
+
+    @objc private func handlePreviousTab(_ sender: UIKeyCommand) {
+        onPreviousTab?()
+    }
+
+    @objc private func handleNextWorkspace(_ sender: UIKeyCommand) {
+        onNextWorkspace?()
+    }
+
+    @objc private func handlePreviousWorkspace(_ sender: UIKeyCommand) {
+        onPreviousWorkspace?()
     }
 
     @objc private func handleSidebarToggle(_ sender: UIKeyCommand) {
@@ -303,6 +351,14 @@ struct BrowserWebView: UIViewRepresentable {
     @Binding var url: URL
     @Binding var currentURLString: String
     let navigationController: BrowserNavigationController
+    let onNewWorkspace: () -> Void
+    let onNewTab: () -> Void
+    let onCloseWorkspace: () -> Void
+    let onCloseTab: () -> Void
+    let onNextWorkspace: () -> Void
+    let onPreviousWorkspace: () -> Void
+    let onNextTab: () -> Void
+    let onPreviousTab: () -> Void
     let onToggleSidebar: () -> Void
     let onToggleSpotlight: () -> Void
     let onToggleFind: () -> Void
@@ -318,8 +374,7 @@ struct BrowserWebView: UIViewRepresentable {
         context.coordinator.lastRequestedURL = url
         navigationController.attach(webView: webView)
         configureShortcuts(for: webView)
-        let request = URLRequest(url: url)
-        webView.load(request)
+        load(url, in: webView)
         currentURLString = url.absoluteString
         return webView
     }
@@ -328,7 +383,7 @@ struct BrowserWebView: UIViewRepresentable {
         configureShortcuts(for: uiView)
         if context.coordinator.lastRequestedURL != url {
             context.coordinator.lastRequestedURL = url
-            uiView.load(URLRequest(url: url))
+            load(url, in: uiView)
         }
     }
 
@@ -337,6 +392,14 @@ struct BrowserWebView: UIViewRepresentable {
     }
 
     private func configureShortcuts(for webView: BrowserWKWebView) {
+        webView.onNewWorkspace = onNewWorkspace
+        webView.onNewTab = onNewTab
+        webView.onCloseWorkspace = onCloseWorkspace
+        webView.onCloseTab = onCloseTab
+        webView.onNextWorkspace = onNextWorkspace
+        webView.onPreviousWorkspace = onPreviousWorkspace
+        webView.onNextTab = onNextTab
+        webView.onPreviousTab = onPreviousTab
         webView.onToggleSidebar = onToggleSidebar
         webView.onToggleSpotlight = onToggleSpotlight
         webView.onToggleFind = onToggleFind
@@ -344,6 +407,14 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onGoBackShortcut = onGoBack
         webView.onGoForwardShortcut = onGoForward
         webView.onReloadShortcut = onReload
+    }
+
+    private func load(_ url: URL, in webView: WKWebView) {
+        if url == BrowserHomePage.url {
+            webView.loadHTMLString(BrowserHomePage.html, baseURL: nil)
+        } else {
+            webView.load(URLRequest(url: url))
+        }
     }
 }
 
@@ -375,6 +446,14 @@ extension BrowserWebView {
         url: .constant(URL(string: "https://www.reddit.com")!),
         currentURLString: .constant("https://www.reddit.com"),
         navigationController: BrowserNavigationController(),
+        onNewWorkspace: {},
+        onNewTab: {},
+        onCloseWorkspace: {},
+        onCloseTab: {},
+        onNextWorkspace: {},
+        onPreviousWorkspace: {},
+        onNextTab: {},
+        onPreviousTab: {},
         onToggleSidebar: {},
         onToggleSpotlight: {},
         onToggleFind: {},
