@@ -19,6 +19,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onPreviousTab: () -> Void
     let onToggleSidebar: () -> Void
     let onToggleSpotlight: () -> Void
+    let onToggleCommandPalette: () -> Void
     let onToggleFind: () -> Void
     let onDismissSpotlight: () -> Void
     let onGoBack: () -> Void
@@ -46,6 +47,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onPreviousTab = onPreviousTab
         controller.onToggleSidebar = onToggleSidebar
         controller.onToggleSpotlight = onToggleSpotlight
+        controller.onToggleCommandPalette = onToggleCommandPalette
         controller.onToggleFind = onToggleFind
         controller.onDismissSpotlight = onDismissSpotlight
         controller.onGoBack = onGoBack
@@ -66,6 +68,7 @@ final class KeyCaptureViewController: UIViewController {
     var onPreviousTab: (() -> Void)?
     var onToggleSidebar: (() -> Void)?
     var onToggleSpotlight: (() -> Void)?
+    var onToggleCommandPalette: (() -> Void)?
     var onToggleFind: (() -> Void)?
     var onDismissSpotlight: (() -> Void)?
     var onGoBack: (() -> Void)?
@@ -86,6 +89,7 @@ final class KeyCaptureViewController: UIViewController {
             previousTabSelector: #selector(selectPreviousTab(_:)),
             sidebarSelector: #selector(handleSidebarToggle(_:)),
             spotlightSelector: #selector(toggleSpotlight(_:)),
+            commandPaletteSelector: #selector(toggleCommandPalette(_:)),
             findSelector: #selector(toggleFind(_:)),
             dismissSelector: #selector(dismissSpotlight(_:)),
             backSelector: #selector(goBack(_:)),
@@ -149,6 +153,10 @@ final class KeyCaptureViewController: UIViewController {
 
     @objc private func toggleSpotlight(_ sender: UIKeyCommand) {
         onToggleSpotlight?()
+    }
+
+    @objc private func toggleCommandPalette(_ sender: UIKeyCommand) {
+        onToggleCommandPalette?()
     }
 
     @objc private func toggleFind(_ sender: UIKeyCommand) {

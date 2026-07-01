@@ -18,6 +18,7 @@ final class BrowserWKWebView: WKWebView {
     var onPreviousTab: (() -> Void)?
     var onToggleSidebar: (() -> Void)?
     var onToggleSpotlight: (() -> Void)?
+    var onToggleCommandPalette: (() -> Void)?
     var onToggleFind: (() -> Void)?
     var onDismissOverlay: (() -> Void)?
     var onGoBackShortcut: (() -> Void)?
@@ -36,6 +37,7 @@ final class BrowserWKWebView: WKWebView {
             previousTabSelector: #selector(handlePreviousTab(_:)),
             sidebarSelector: #selector(handleSidebarToggle(_:)),
             spotlightSelector: #selector(handleSpotlightToggle(_:)),
+            commandPaletteSelector: #selector(handleCommandPaletteToggle(_:)),
             findSelector: #selector(handleFindToggle(_:)),
             dismissSelector: #selector(handleDismiss(_:)),
             backSelector: #selector(handleGoBack(_:)),
@@ -82,6 +84,10 @@ final class BrowserWKWebView: WKWebView {
 
     @objc private func handleSpotlightToggle(_ sender: UIKeyCommand) {
         onToggleSpotlight?()
+    }
+
+    @objc private func handleCommandPaletteToggle(_ sender: UIKeyCommand) {
+        onToggleCommandPalette?()
     }
 
     @objc private func handleFindToggle(_ sender: UIKeyCommand) {
@@ -361,6 +367,7 @@ struct BrowserWebView: UIViewRepresentable {
     let onPreviousTab: () -> Void
     let onToggleSidebar: () -> Void
     let onToggleSpotlight: () -> Void
+    let onToggleCommandPalette: () -> Void
     let onToggleFind: () -> Void
     let onDismissOverlay: () -> Void
     let onGoBack: () -> Void
@@ -388,7 +395,7 @@ struct BrowserWebView: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(currentURLString: $currentURLString)
+        Coordinator(url: $url, currentURLString: $currentURLString)
     }
 
     private func configureShortcuts(for webView: BrowserWKWebView) {
@@ -402,6 +409,7 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onPreviousTab = onPreviousTab
         webView.onToggleSidebar = onToggleSidebar
         webView.onToggleSpotlight = onToggleSpotlight
+        webView.onToggleCommandPalette = onToggleCommandPalette
         webView.onToggleFind = onToggleFind
         webView.onDismissOverlay = onDismissOverlay
         webView.onGoBackShortcut = onGoBack
@@ -411,7 +419,7 @@ struct BrowserWebView: UIViewRepresentable {
 
     private func load(_ url: URL, in webView: WKWebView) {
         if url == BrowserHomePage.url {
-            webView.loadHTMLString(BrowserHomePage.html, baseURL: nil)
+            webView.loadHTMLString(BrowserHomePage.html(), baseURL: nil)
         } else {
             webView.load(URLRequest(url: url))
         }
@@ -420,23 +428,76 @@ struct BrowserWebView: UIViewRepresentable {
 
 extension BrowserWebView {
     final class Coordinator: NSObject, WKNavigationDelegate {
+        @Binding private var url: URL
         @Binding private var currentURLString: String
         var lastRequestedURL: URL?
         private var urlObservation: NSKeyValueObservation?
 
-        init(currentURLString: Binding<String>) {
+        init(url: Binding<URL>, currentURLString: Binding<String>) {
+            _url = url
             _currentURLString = currentURLString
         }
 
         func attach(to webView: WKWebView) {
             urlObservation = webView.observe(\.url, options: [.initial, .new]) { [weak self] webView, _ in
-                guard let self, let urlString = webView.url?.absoluteString else { return }
-                self.currentURLString = urlString
+                guard let self else { return }
+                self.syncObservedURL(from: webView.url)
             }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            currentURLString = webView.url?.absoluteString ?? currentURLString
+            syncObservedURL(from: webView.url)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let requestURL = navigationAction.request.url else {
+                decisionHandler(.allow)
+                return
+            }
+
+            if requestURL.scheme == "browser",
+               requestURL.host() == "open",
+               let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
+               let targetURLString = components.queryItems?.first(where: { $0.name == "url" })?.value,
+               let targetURL = URL(string: targetURLString)
+            {
+                decisionHandler(.cancel)
+                webView.load(URLRequest(url: targetURL))
+                return
+            }
+
+            guard navigationAction.navigationType == .linkActivated else {
+                decisionHandler(.allow)
+                return
+            }
+
+            let isHomePageLink = webView.url == nil || webView.url == BrowserHomePage.url
+            if isHomePageLink, requestURL.scheme?.hasPrefix("http") == true {
+                decisionHandler(.cancel)
+                webView.load(URLRequest(url: requestURL))
+                return
+            }
+
+            decisionHandler(.allow)
+        }
+
+        private func syncObservedURL(from observedURL: URL?) {
+            guard let observedURL else { return }
+
+            if observedURL.scheme == "about", lastRequestedURL == BrowserHomePage.url {
+                url = BrowserHomePage.url
+                currentURLString = BrowserHomePage.url.absoluteString
+                lastRequestedURL = BrowserHomePage.url
+                return
+            }
+
+            url = observedURL
+            currentURLString = observedURL.absoluteString
+            lastRequestedURL = observedURL
         }
     }
 }
@@ -456,6 +517,7 @@ extension BrowserWebView {
         onPreviousTab: {},
         onToggleSidebar: {},
         onToggleSpotlight: {},
+        onToggleCommandPalette: {},
         onToggleFind: {},
         onDismissOverlay: {},
         onGoBack: {},

@@ -42,8 +42,14 @@ struct SidebarView: View {
     let selectedTabID: UUID?
     let workspaceCount: Int
     let selectedWorkspaceIndex: Int
+    let urlFieldFocusRequestID: Int?
     let onSelectTab: (UUID) -> Void
     let onCloseTab: (UUID) -> Void
+    let onSidebarShortcut: (() -> Void)?
+    let onSpotlightShortcut: (() -> Void)?
+    let onCommandPaletteShortcut: (() -> Void)?
+    let onFindShortcut: (() -> Void)?
+    let onDismiss: (() -> Void)?
     let onSubmit: () -> Void
 
     var body: some View {
@@ -76,14 +82,23 @@ struct SidebarView: View {
         HStack(spacing: 12) {
             FaviconView(pageURL: currentPageURL, typedText: urlText)
 
-            TextField("https://", text: $urlText, onCommit: onSubmit)
-                .textFieldStyle(.plain)
-                .font(.custom(Style.fontName, size: Style.valueFontSize))
-                .foregroundStyle(Style.valueColor)
-                .textSelection(.enabled)
+            OverlayShortcutTextField(
+                text: $urlText,
+                placeholder: "https://",
+                fontName: Style.fontName,
+                fontSize: Style.valueFontSize,
+                textColor: .white,
+                focusRequestID: urlFieldFocusRequestID,
+                onSubmit: onSubmit,
+                onTextChange: nil,
+                onShortcut: handleShortcut
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 20)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .background(Style.fieldBackgroundColor)
         .overlay(
             RoundedRectangle(cornerRadius: Style.fieldCornerRadius, style: .continuous)
@@ -110,8 +125,11 @@ struct SidebarView: View {
 
                                 Spacer(minLength: 0)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         Button {
                             onCloseTab(tab.id)
@@ -147,6 +165,25 @@ struct SidebarView: View {
     private func backgroundColor(for id: UUID) -> Color {
         selectedTabID == id ? Style.activeRowBackgroundColor : Style.rowBackgroundColor
     }
+
+    private func handleShortcut(_ action: OverlayShortcutTextField.ShortcutAction) {
+        switch action {
+        case .sidebar:
+            onSidebarShortcut?()
+        case .spotlight:
+            onSpotlightShortcut?()
+        case .commandPalette:
+            onCommandPaletteShortcut?()
+        case .find:
+            onFindShortcut?()
+        case .nextOption:
+            break
+        case .previousOption:
+            break
+        case .dismiss:
+            onDismiss?()
+        }
+    }
 }
 
 #Preview {
@@ -164,8 +201,14 @@ struct SidebarView: View {
         selectedTabID: nil,
         workspaceCount: 3,
         selectedWorkspaceIndex: 1,
+        urlFieldFocusRequestID: nil,
         onSelectTab: { _ in },
         onCloseTab: { _ in },
+        onSidebarShortcut: nil,
+        onSpotlightShortcut: nil,
+        onCommandPaletteShortcut: nil,
+        onFindShortcut: nil,
+        onDismiss: nil,
         onSubmit: {}
     )
 }

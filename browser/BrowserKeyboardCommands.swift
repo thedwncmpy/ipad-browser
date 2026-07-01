@@ -17,6 +17,7 @@ enum BrowserKeyboardCommands {
         previousTabSelector: Selector,
         sidebarSelector: Selector,
         spotlightSelector: Selector,
+        commandPaletteSelector: Selector,
         findSelector: Selector,
         dismissSelector: Selector,
         backSelector: Selector,
@@ -73,6 +74,11 @@ enum BrowserKeyboardCommands {
                 input: "l",
                 modifierFlags: [.command],
                 action: spotlightSelector
+            ),
+            UIKeyCommand(
+                input: " ",
+                modifierFlags: [.alternate],
+                action: commandPaletteSelector
             ),
             UIKeyCommand(
                 input: "f",
