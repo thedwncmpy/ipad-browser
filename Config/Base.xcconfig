@@ -1,0 +1,4 @@
+// Shared build settings for browser.xcodeproj.
+// DEVELOPMENT_TEAM is per-developer, so it lives in Local.xcconfig (untracked).
+// The optional include is skipped if that file is missing (e.g. CI).
+#include? "Local.xcconfig"

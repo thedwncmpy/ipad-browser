@@ -7,6 +7,15 @@ This guide provides the necessary commands to build, install, and launch the app
 - Physical iPhone connected via USB or Wi-Fi.
 - Device ID: `00008142-001E415022F3801C`
 
+## Signing setup
+
+On a fresh clone, the project opens but won't sign until you create your local override:
+
+```sh
+cp Config/Local.xcconfig.example Config/Local.xcconfig
+# then edit it: DEVELOPMENT_TEAM = <your 10-char Team ID>
+```
+
 ## Deployment Blueprint
 
 You can run the entire process (Build, Install, Launch) using the macro script:
