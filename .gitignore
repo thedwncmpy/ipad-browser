@@ -1,2 +1,8 @@
 build/
 logs/
+
+# Local signing (Team ID)
+Config/Local.xcconfig
+
+# Xcode per-user state
+**/xcuserdata/
