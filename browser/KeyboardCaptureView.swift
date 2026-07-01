@@ -17,6 +17,10 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onPreviousWorkspace: () -> Void
     let onNextTab: () -> Void
     let onPreviousTab: () -> Void
+    let onMoveTabToNextWorkspace: () -> Void
+    let onMoveTabToPreviousWorkspace: () -> Void
+    let onMoveTabDown: () -> Void
+    let onMoveTabUp: () -> Void
     let onToggleSidebar: () -> Void
     let onToggleSpotlight: () -> Void
     let onToggleCommandPalette: () -> Void
@@ -46,6 +50,10 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onPreviousWorkspace = onPreviousWorkspace
         controller.onNextTab = onNextTab
         controller.onPreviousTab = onPreviousTab
+        controller.onMoveTabToNextWorkspace = onMoveTabToNextWorkspace
+        controller.onMoveTabToPreviousWorkspace = onMoveTabToPreviousWorkspace
+        controller.onMoveTabDown = onMoveTabDown
+        controller.onMoveTabUp = onMoveTabUp
         controller.onToggleSidebar = onToggleSidebar
         controller.onToggleSpotlight = onToggleSpotlight
         controller.onToggleCommandPalette = onToggleCommandPalette
@@ -71,6 +79,10 @@ final class KeyCaptureViewController: UIViewController {
     var onPreviousWorkspace: (() -> Void)?
     var onNextTab: (() -> Void)?
     var onPreviousTab: (() -> Void)?
+    var onMoveTabToNextWorkspace: (() -> Void)?
+    var onMoveTabToPreviousWorkspace: (() -> Void)?
+    var onMoveTabDown: (() -> Void)?
+    var onMoveTabUp: (() -> Void)?
     var onToggleSidebar: (() -> Void)?
     var onToggleSpotlight: (() -> Void)?
     var onToggleCommandPalette: (() -> Void)?
@@ -93,6 +105,10 @@ final class KeyCaptureViewController: UIViewController {
             previousWorkspaceSelector: #selector(selectPreviousWorkspace(_:)),
             nextTabSelector: #selector(selectNextTab(_:)),
             previousTabSelector: #selector(selectPreviousTab(_:)),
+            moveTabToNextWorkspaceSelector: #selector(moveTabToNextWorkspace(_:)),
+            moveTabToPreviousWorkspaceSelector: #selector(moveTabToPreviousWorkspace(_:)),
+            moveTabDownSelector: #selector(moveTabDown(_:)),
+            moveTabUpSelector: #selector(moveTabUp(_:)),
             sidebarSelector: #selector(handleSidebarToggle(_:)),
             spotlightSelector: #selector(toggleSpotlight(_:)),
             commandPaletteSelector: #selector(toggleCommandPalette(_:)),
@@ -135,6 +151,22 @@ final class KeyCaptureViewController: UIViewController {
 
     @objc private func selectPreviousTab(_ sender: UIKeyCommand) {
         onPreviousTab?()
+    }
+
+    @objc private func moveTabToNextWorkspace(_ sender: UIKeyCommand) {
+        onMoveTabToNextWorkspace?()
+    }
+
+    @objc private func moveTabToPreviousWorkspace(_ sender: UIKeyCommand) {
+        onMoveTabToPreviousWorkspace?()
+    }
+
+    @objc private func moveTabDown(_ sender: UIKeyCommand) {
+        onMoveTabDown?()
+    }
+
+    @objc private func moveTabUp(_ sender: UIKeyCommand) {
+        onMoveTabUp?()
     }
 
     @objc private func selectNextWorkspace(_ sender: UIKeyCommand) {

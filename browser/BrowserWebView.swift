@@ -16,6 +16,10 @@ final class BrowserWKWebView: WKWebView {
     var onPreviousWorkspace: (() -> Void)?
     var onNextTab: (() -> Void)?
     var onPreviousTab: (() -> Void)?
+    var onMoveTabToNextWorkspace: (() -> Void)?
+    var onMoveTabToPreviousWorkspace: (() -> Void)?
+    var onMoveTabDown: (() -> Void)?
+    var onMoveTabUp: (() -> Void)?
     var onToggleSidebar: (() -> Void)?
     var onToggleSpotlight: (() -> Void)?
     var onToggleCommandPalette: (() -> Void)?
@@ -36,6 +40,10 @@ final class BrowserWKWebView: WKWebView {
             previousWorkspaceSelector: #selector(handlePreviousWorkspace(_:)),
             nextTabSelector: #selector(handleNextTab(_:)),
             previousTabSelector: #selector(handlePreviousTab(_:)),
+            moveTabToNextWorkspaceSelector: #selector(handleMoveTabToNextWorkspace(_:)),
+            moveTabToPreviousWorkspaceSelector: #selector(handleMoveTabToPreviousWorkspace(_:)),
+            moveTabDownSelector: #selector(handleMoveTabDown(_:)),
+            moveTabUpSelector: #selector(handleMoveTabUp(_:)),
             sidebarSelector: #selector(handleSidebarToggle(_:)),
             spotlightSelector: #selector(handleSpotlightToggle(_:)),
             commandPaletteSelector: #selector(handleCommandPaletteToggle(_:)),
@@ -92,6 +100,22 @@ final class BrowserWKWebView: WKWebView {
         onPreviousTab?()
     }
 
+    @objc private func handleMoveTabToNextWorkspace(_ sender: UIKeyCommand) {
+        onMoveTabToNextWorkspace?()
+    }
+
+    @objc private func handleMoveTabToPreviousWorkspace(_ sender: UIKeyCommand) {
+        onMoveTabToPreviousWorkspace?()
+    }
+
+    @objc private func handleMoveTabDown(_ sender: UIKeyCommand) {
+        onMoveTabDown?()
+    }
+
+    @objc private func handleMoveTabUp(_ sender: UIKeyCommand) {
+        onMoveTabUp?()
+    }
+
     @objc private func handleNextWorkspace(_ sender: UIKeyCommand) {
         onNextWorkspace?()
     }
@@ -142,10 +166,10 @@ struct BrowserFindStatus: Equatable {
 
 @MainActor
 final class BrowserNavigationController {
-    weak var webView: WKWebView?
+    private(set) var webView: BrowserWKWebView?
     private(set) var lastFindQuery = ""
 
-    func attach(webView: WKWebView) {
+    func attach(webView: BrowserWKWebView) {
         self.webView = webView
     }
 
@@ -389,6 +413,10 @@ struct BrowserWebView: UIViewRepresentable {
     let onPreviousWorkspace: () -> Void
     let onNextTab: () -> Void
     let onPreviousTab: () -> Void
+    let onMoveTabToNextWorkspace: () -> Void
+    let onMoveTabToPreviousWorkspace: () -> Void
+    let onMoveTabDown: () -> Void
+    let onMoveTabUp: () -> Void
     let onToggleSidebar: () -> Void
     let onToggleSpotlight: () -> Void
     let onToggleCommandPalette: () -> Void
@@ -399,13 +427,28 @@ struct BrowserWebView: UIViewRepresentable {
     let onReload: () -> Void
 
     func makeUIView(context: Context) -> BrowserWKWebView {
-        let webView = BrowserWKWebView()
+        let webView: BrowserWKWebView
+        let shouldLoadInitialURL: Bool
+
+        if let cachedWebView = navigationController.webView {
+            webView = cachedWebView
+            webView.removeFromSuperview()
+            shouldLoadInitialURL = false
+        } else {
+            webView = BrowserWKWebView()
+            shouldLoadInitialURL = true
+        }
+
         webView.navigationDelegate = context.coordinator
         context.coordinator.attach(to: webView)
         context.coordinator.lastRequestedURL = url
         navigationController.attach(webView: webView)
         configureShortcuts(for: webView)
-        load(url, in: webView)
+
+        if shouldLoadInitialURL {
+            load(url, in: webView)
+        }
+
         currentURLString = url.absoluteString
         return webView
     }
@@ -443,6 +486,10 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onPreviousWorkspace = onPreviousWorkspace
         webView.onNextTab = onNextTab
         webView.onPreviousTab = onPreviousTab
+        webView.onMoveTabToNextWorkspace = onMoveTabToNextWorkspace
+        webView.onMoveTabToPreviousWorkspace = onMoveTabToPreviousWorkspace
+        webView.onMoveTabDown = onMoveTabDown
+        webView.onMoveTabUp = onMoveTabUp
         webView.onToggleSidebar = onToggleSidebar
         webView.onToggleSpotlight = onToggleSpotlight
         webView.onToggleCommandPalette = onToggleCommandPalette
@@ -583,6 +630,10 @@ extension BrowserWebView {
         onPreviousWorkspace: {},
         onNextTab: {},
         onPreviousTab: {},
+        onMoveTabToNextWorkspace: {},
+        onMoveTabToPreviousWorkspace: {},
+        onMoveTabDown: {},
+        onMoveTabUp: {},
         onToggleSidebar: {},
         onToggleSpotlight: {},
         onToggleCommandPalette: {},

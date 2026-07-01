@@ -72,6 +72,7 @@ struct FaviconView: View {
 
     let pageURL: URL?
     let typedText: String?
+    var showsPlaceholder = true
     @StateObject private var store = FaviconStore.shared
 
     private var faviconURL: URL? {
@@ -92,10 +93,10 @@ struct FaviconView: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-            } else if faviconURL != nil {
+            } else if showsPlaceholder {
                 placeholder
             } else {
-                placeholder
+                Color.clear
             }
         }
         .frame(width: Style.size, height: Style.size)

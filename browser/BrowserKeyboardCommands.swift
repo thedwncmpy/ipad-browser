@@ -15,6 +15,10 @@ enum BrowserKeyboardCommands {
         previousWorkspaceSelector: Selector,
         nextTabSelector: Selector,
         previousTabSelector: Selector,
+        moveTabToNextWorkspaceSelector: Selector,
+        moveTabToPreviousWorkspaceSelector: Selector,
+        moveTabDownSelector: Selector,
+        moveTabUpSelector: Selector,
         sidebarSelector: Selector,
         spotlightSelector: Selector,
         commandPaletteSelector: Selector,
@@ -64,6 +68,26 @@ enum BrowserKeyboardCommands {
                 input: "k",
                 modifierFlags: [.control],
                 action: previousTabSelector
+            ),
+            UIKeyCommand(
+                input: "l",
+                modifierFlags: [.control, .shift],
+                action: moveTabToNextWorkspaceSelector
+            ),
+            UIKeyCommand(
+                input: "h",
+                modifierFlags: [.control, .shift],
+                action: moveTabToPreviousWorkspaceSelector
+            ),
+            UIKeyCommand(
+                input: "j",
+                modifierFlags: [.control, .shift],
+                action: moveTabDownSelector
+            ),
+            UIKeyCommand(
+                input: "k",
+                modifierFlags: [.control, .shift],
+                action: moveTabUpSelector
             ),
             UIKeyCommand(
                 input: "/",

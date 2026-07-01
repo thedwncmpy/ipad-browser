@@ -34,6 +34,7 @@ struct SpotlightView: View {
     var trailingText: String? = nil
     var pageURL: URL? = nil
     var showsFavicon = false
+    var showsFaviconPlaceholder = true
     var focusRequestID: Int? = nil
     var suggestions: [Suggestion] = []
     var onTextChange: ((String) -> Void)? = nil
@@ -52,7 +53,7 @@ struct SpotlightView: View {
                 VStack(spacing: 12) {
                     HStack(spacing: 16) {
                         if showsFavicon {
-                            FaviconView(pageURL: pageURL, typedText: text)
+                            FaviconView(pageURL: pageURL, typedText: text, showsPlaceholder: showsFaviconPlaceholder)
                         }
 
                         OverlayShortcutTextField(

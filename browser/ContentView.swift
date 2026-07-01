@@ -37,6 +37,10 @@ struct ContentView: View {
         case previousWorkspace
         case nextTab
         case previousTab
+        case moveTabToNextWorkspace
+        case moveTabToPreviousWorkspace
+        case moveTabDown
+        case moveTabUp
         case sidebar
         case spotlight
         case commandPalette
@@ -228,6 +232,10 @@ struct ContentView: View {
                         onPreviousWorkspace: selectPreviousWorkspace,
                         onNextTab: selectNextTab,
                         onPreviousTab: selectPreviousTab,
+                        onMoveTabToNextWorkspace: moveCurrentTabToNextWorkspace,
+                        onMoveTabToPreviousWorkspace: moveCurrentTabToPreviousWorkspace,
+                        onMoveTabDown: moveCurrentTabDown,
+                        onMoveTabUp: moveCurrentTabUp,
                         onToggleSidebar: toggleSidebar,
                         onToggleSpotlight: toggleSpotlight,
                         onToggleCommandPalette: toggleCommandPalette,
@@ -300,6 +308,9 @@ struct ContentView: View {
             SpotlightView(
                 text: $commandPaletteText,
                 placeholder: "Command",
+                pageURL: commandPaletteFaviconURL,
+                showsFavicon: commandPaletteFaviconURL != nil,
+                showsFaviconPlaceholder: false,
                 focusRequestID: commandPaletteFocusRequestID == 0 ? nil : commandPaletteFocusRequestID,
                 suggestions: commandPaletteSuggestions,
                 onTextChange: { _ in resetCommandPaletteSelection() },
@@ -356,6 +367,10 @@ struct ContentView: View {
                 onPreviousWorkspace: selectPreviousWorkspace,
                 onNextTab: selectNextTab,
                 onPreviousTab: selectPreviousTab,
+                onMoveTabToNextWorkspace: moveCurrentTabToNextWorkspace,
+                onMoveTabToPreviousWorkspace: moveCurrentTabToPreviousWorkspace,
+                onMoveTabDown: moveCurrentTabDown,
+                onMoveTabUp: moveCurrentTabUp,
                 onToggleSidebar: toggleSidebar,
                 onToggleSpotlight: toggleSpotlight,
                 onToggleCommandPalette: toggleCommandPalette,
@@ -495,6 +510,30 @@ struct ContentView: View {
         }
     }
 
+    private func moveCurrentTabToNextWorkspace() {
+        handleShortcut(.moveTabToNextWorkspace) {
+            moveCurrentTabToWorkspace(by: 1)
+        }
+    }
+
+    private func moveCurrentTabToPreviousWorkspace() {
+        handleShortcut(.moveTabToPreviousWorkspace) {
+            moveCurrentTabToWorkspace(by: -1)
+        }
+    }
+
+    private func moveCurrentTabDown() {
+        handleShortcut(.moveTabDown) {
+            reorderCurrentTab(by: 1)
+        }
+    }
+
+    private func moveCurrentTabUp() {
+        handleShortcut(.moveTabUp) {
+            reorderCurrentTab(by: -1)
+        }
+    }
+
     private func selectTab(_ id: UUID) {
         selectTab(id, in: activeWorkspace)
     }
@@ -555,6 +594,48 @@ struct ContentView: View {
 
         if selectedWorkspaceID == id {
             selectedWorkspaceID = fallbackWorkspaceID
+        }
+
+        ensureWorkspaceSelectionIntegrity()
+        refreshAfterStructuralChange()
+    }
+
+    private func reorderCurrentTab(by offset: Int) {
+        guard let workspace = activeWorkspace else { return }
+        guard let selectedTabID = workspace.selectedTabID else { return }
+        guard let currentIndex = workspace.tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
+
+        let destinationIndex = currentIndex + offset
+        guard workspace.tabs.indices.contains(destinationIndex) else { return }
+
+        workspace.tabs.swapAt(currentIndex, destinationIndex)
+        workspace.selectedTabID = selectedTabID
+        refreshAfterStructuralChange()
+    }
+
+    private func moveCurrentTabToWorkspace(by offset: Int) {
+        guard let sourceWorkspaceIndex = activeWorkspaceIndex else { return }
+        let destinationWorkspaceIndex = sourceWorkspaceIndex + offset
+        guard workspaces.indices.contains(destinationWorkspaceIndex) else { return }
+
+        let sourceWorkspace = workspaces[sourceWorkspaceIndex]
+        let destinationWorkspace = workspaces[destinationWorkspaceIndex]
+        guard let selectedTabID = sourceWorkspace.selectedTabID else { return }
+        guard let tabIndex = sourceWorkspace.tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
+
+        let movingTab = sourceWorkspace.tabs.remove(at: tabIndex)
+        destinationWorkspace.tabs.append(movingTab)
+        destinationWorkspace.selectedTabID = movingTab.id
+        selectedWorkspaceID = destinationWorkspace.id
+
+        if sourceWorkspace.tabs.isEmpty {
+            let replacementTab = BrowserTab()
+            sourceWorkspace.tabs = [replacementTab]
+            sourceWorkspace.selectedTabID = replacementTab.id
+        } else if tabIndex < sourceWorkspace.tabs.count {
+            sourceWorkspace.selectedTabID = sourceWorkspace.tabs[tabIndex].id
+        } else {
+            sourceWorkspace.selectedTabID = sourceWorkspace.tabs.last?.id
         }
 
         ensureWorkspaceSelectionIntegrity()
@@ -748,6 +829,67 @@ struct ContentView: View {
                 action: { executeCommandPaletteSuggestion(at: index) }
             )
         }
+    }
+
+    private var commandPaletteFaviconURL: URL? {
+        let lookupText = commandPaletteFaviconLookupText()
+        guard !lookupText.isEmpty else { return nil }
+
+        if let favoriteURL = favoriteURLForCommandPaletteLookup(lookupText) {
+            return favoriteURL
+        }
+
+        if let typedURL = directURL(for: lookupText) {
+            return typedURL
+        }
+
+        if let match = matchingOpenTabs(for: lookupText).first {
+            return workspaces
+                .first(where: { $0.id == match.workspaceID })?
+                .tabs
+                .first(where: { $0.id == match.tabID })?
+                .currentPageURL
+        }
+
+        return nil
+    }
+
+    private func commandPaletteFaviconLookupText() -> String {
+        let query = commandPaletteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return "" }
+
+        let parts = query.split(maxSplits: 1, whereSeparator: \.isWhitespace).map(String.init)
+        guard let commandToken = parts.first?.lowercased(), parts.count > 1 else {
+            return query
+        }
+
+        let argument = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        switch commandToken {
+        case "ot", "unfav":
+            return argument
+        case "fav":
+            let favoriteParts = argument.split(maxSplits: 1, whereSeparator: \.isWhitespace).map(String.init)
+            if favoriteParts.first?.lowercased() == "add", favoriteParts.count > 1 {
+                return favoriteParts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return argument
+        default:
+            return query
+        }
+    }
+
+    private func favoriteURLForCommandPaletteLookup(_ rawLookup: String) -> URL? {
+        let lookup = rawLookup.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lookup.isEmpty else { return nil }
+
+        let matchingFavorite = favorites.first { favorite in
+            favorite.alias.lowercased() == lookup ||
+                favorite.title.lowercased().contains(lookup) ||
+                favorite.urlString.lowercased().contains(lookup)
+        }
+
+        guard let urlString = matchingFavorite?.urlString else { return nil }
+        return URL(string: urlString)
     }
 
     private func shouldShowCommandPaletteSuggestions(for query: String) -> Bool {
@@ -1182,6 +1324,20 @@ struct ContentView: View {
         var components = URLComponents(string: "https://www.google.com/search")
         components?.queryItems = [URLQueryItem(name: "q", value: rawInput)]
         return components?.url
+    }
+
+    private func directURL(for rawInput: String) -> URL? {
+        guard !rawInput.isEmpty else { return nil }
+
+        if let explicitURL = URL(string: rawInput), explicitURL.scheme != nil {
+            return explicitURL
+        }
+
+        if looksLikeHost(rawInput), let hostURL = URL(string: "https://\(rawInput)") {
+            return hostURL
+        }
+
+        return nil
     }
 
     private func looksLikeHost(_ input: String) -> Bool {
