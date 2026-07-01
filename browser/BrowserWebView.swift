@@ -24,9 +24,10 @@ final class BrowserWKWebView: WKWebView {
     var onGoBackShortcut: (() -> Void)?
     var onGoForwardShortcut: (() -> Void)?
     var onReloadShortcut: (() -> Void)?
+    var isSidebarNavigationEnabled = false
 
     override var keyCommands: [UIKeyCommand]? {
-        BrowserKeyboardCommands.makeKeyCommands(
+        var commands = BrowserKeyboardCommands.makeKeyCommands(
             newWorkspaceSelector: #selector(handleNewWorkspace(_:)),
             newTabSelector: #selector(handleNewTab(_:)),
             closeWorkspaceSelector: #selector(handleCloseWorkspace(_:)),
@@ -44,6 +45,27 @@ final class BrowserWKWebView: WKWebView {
             forwardSelector: #selector(handleGoForward(_:)),
             reloadSelector: #selector(handleReload(_:))
         )
+
+        if isSidebarNavigationEnabled {
+            commands.append(contentsOf: [
+                sidebarNavigationCommand(input: "j", action: #selector(handleNextTab(_:))),
+                sidebarNavigationCommand(input: UIKeyCommand.inputDownArrow, action: #selector(handleNextTab(_:))),
+                sidebarNavigationCommand(input: "k", action: #selector(handlePreviousTab(_:))),
+                sidebarNavigationCommand(input: UIKeyCommand.inputUpArrow, action: #selector(handlePreviousTab(_:))),
+                sidebarNavigationCommand(input: "h", action: #selector(handlePreviousWorkspace(_:))),
+                sidebarNavigationCommand(input: UIKeyCommand.inputLeftArrow, action: #selector(handlePreviousWorkspace(_:))),
+                sidebarNavigationCommand(input: "l", action: #selector(handleNextWorkspace(_:))),
+                sidebarNavigationCommand(input: UIKeyCommand.inputRightArrow, action: #selector(handleNextWorkspace(_:)))
+            ])
+        }
+
+        return commands
+    }
+
+    private func sidebarNavigationCommand(input: String, action: Selector) -> UIKeyCommand {
+        let command = UIKeyCommand(input: input, modifierFlags: [], action: action)
+        command.wantsPriorityOverSystemBehavior = true
+        return command
     }
 
     @objc private func handleNewTab(_ sender: UIKeyCommand) {
@@ -357,6 +379,8 @@ struct BrowserWebView: UIViewRepresentable {
     @Binding var url: URL
     @Binding var currentURLString: String
     let navigationController: BrowserNavigationController
+    let focusRequestID: Int?
+    let isSidebarNavigationEnabled: Bool
     let onNewWorkspace: () -> Void
     let onNewTab: () -> Void
     let onCloseWorkspace: () -> Void
@@ -388,6 +412,18 @@ struct BrowserWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: BrowserWKWebView, context: Context) {
         configureShortcuts(for: uiView)
+        syncSidebarNavigationMode(in: uiView, context: context)
+
+        if let focusRequestID, context.coordinator.lastAppliedFocusRequestID != focusRequestID {
+            context.coordinator.lastAppliedFocusRequestID = focusRequestID
+            DispatchQueue.main.async {
+                _ = uiView.becomeFirstResponder()
+                if uiView.url?.scheme == "about" || self.url == BrowserHomePage.url {
+                    uiView.evaluateJavaScript("window.__browserFocusSelectedFavorite && window.__browserFocusSelectedFavorite();")
+                }
+            }
+        }
+
         if context.coordinator.lastRequestedURL != url {
             context.coordinator.lastRequestedURL = url
             load(url, in: uiView)
@@ -415,6 +451,15 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onGoBackShortcut = onGoBack
         webView.onGoForwardShortcut = onGoForward
         webView.onReloadShortcut = onReload
+        webView.isSidebarNavigationEnabled = isSidebarNavigationEnabled
+    }
+
+    private func syncSidebarNavigationMode(in webView: WKWebView, context: Context) {
+        context.coordinator.isSidebarNavigationEnabled = isSidebarNavigationEnabled
+        guard context.coordinator.lastAppliedSidebarNavigationEnabled != isSidebarNavigationEnabled else { return }
+        context.coordinator.lastAppliedSidebarNavigationEnabled = isSidebarNavigationEnabled
+
+        context.coordinator.applySidebarNavigationMode(to: webView)
     }
 
     private func load(_ url: URL, in webView: WKWebView) {
@@ -431,6 +476,9 @@ extension BrowserWebView {
         @Binding private var url: URL
         @Binding private var currentURLString: String
         var lastRequestedURL: URL?
+        var lastAppliedFocusRequestID: Int?
+        var lastAppliedSidebarNavigationEnabled: Bool?
+        var isSidebarNavigationEnabled = false
         private var urlObservation: NSKeyValueObservation?
 
         init(url: Binding<URL>, currentURLString: Binding<String>) {
@@ -447,6 +495,17 @@ extension BrowserWebView {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             syncObservedURL(from: webView.url)
+            applySidebarNavigationMode(to: webView)
+
+            if url == BrowserHomePage.url {
+                webView.becomeFirstResponder()
+                webView.evaluateJavaScript("window.__browserFocusSelectedFavorite && window.__browserFocusSelectedFavorite();")
+            }
+        }
+
+        func applySidebarNavigationMode(to webView: WKWebView) {
+            let value = isSidebarNavigationEnabled ? "true" : "false"
+            webView.evaluateJavaScript("window.__browserSidebarNavigationEnabled = \(value);")
         }
 
         func webView(
@@ -466,6 +525,9 @@ extension BrowserWebView {
                let targetURL = URL(string: targetURLString)
             {
                 decisionHandler(.cancel)
+                lastRequestedURL = targetURL
+                url = targetURL
+                currentURLString = targetURL.absoluteString
                 webView.load(URLRequest(url: targetURL))
                 return
             }
@@ -495,6 +557,10 @@ extension BrowserWebView {
                 return
             }
 
+            if observedURL.scheme == "browser", observedURL.host() == "open" {
+                return
+            }
+
             url = observedURL
             currentURLString = observedURL.absoluteString
             lastRequestedURL = observedURL
@@ -507,6 +573,8 @@ extension BrowserWebView {
         url: .constant(URL(string: "https://www.reddit.com")!),
         currentURLString: .constant("https://www.reddit.com"),
         navigationController: BrowserNavigationController(),
+        focusRequestID: nil,
+        isSidebarNavigationEnabled: false,
         onNewWorkspace: {},
         onNewTab: {},
         onCloseWorkspace: {},

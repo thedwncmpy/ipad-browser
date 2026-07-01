@@ -19,6 +19,15 @@ struct ContentView: View {
         case find
     }
 
+    private enum KeyboardFocusTarget {
+        case browser
+        case capture
+        case sidebarURL
+        case spotlight
+        case commandPalette
+        case find
+    }
+
     private enum ShortcutAction {
         case newWorkspace
         case newTab
@@ -112,8 +121,12 @@ struct ContentView: View {
     @State private var commandPaletteOriginWorkspaceID: UUID? = nil
     @State private var commandPaletteOriginTabID: UUID? = nil
     @State private var findText = ""
+    @State private var findFocusRequestID = 0
     @State private var findStatus = BrowserFindStatus.empty
     @State private var sidebarURLFocusRequestID = 0
+    @State private var browserFocusRequestID = 0
+    @State private var captureFocusRequestID = 0
+    @State private var keyboardFocusTarget: KeyboardFocusTarget = .browser
     @State private var favorites: [BrowserFavorite] = []
     @State private var tabRenderVersion = 0
     @State private var lastShortcutAction: ShortcutAction?
@@ -135,15 +148,27 @@ struct ContentView: View {
             }
             favorites = loadFavorites()
             syncSidebarURLText()
+            restoreDefaultKeyboardFocus()
+        }
+        .onChange(of: activeOverlay) { _, newOverlay in
+            if newOverlay == .none {
+                restoreDefaultKeyboardFocus()
+            }
         }
         .onChange(of: selectedWorkspaceID) { _, _ in
             ensureWorkspaceSelectionIntegrity()
             syncSidebarURLText()
             clearFindState()
+            if activeOverlay == .none {
+                restoreDefaultKeyboardFocus()
+            }
         }
         .onChange(of: activeWorkspace?.selectedTabID) { _, _ in
             syncSidebarURLText()
             clearFindState()
+            if activeOverlay == .none {
+                restoreDefaultKeyboardFocus()
+            }
         }
     }
 
@@ -193,6 +218,8 @@ struct ContentView: View {
                         url: binding(for: tab, keyPath: \.currentPageURL),
                         currentURLString: binding(for: tab, keyPath: \.currentURLString),
                         navigationController: tab.navigationController,
+                        focusRequestID: browserFocusRequestID(for: tab, in: workspace),
+                        isSidebarNavigationEnabled: activeOverlay == .sidebar,
                         onNewWorkspace: createNewWorkspace,
                         onNewTab: createNewTab,
                         onCloseWorkspace: closeCurrentWorkspace,
@@ -255,6 +282,7 @@ struct ContentView: View {
                 onSidebarShortcut: toggleSidebar,
                 onFindShortcut: toggleFind,
                 onSpotlightShortcut: toggleSpotlight,
+                onCommandPaletteShortcut: toggleCommandPalette,
                 onSubmit: submitSpotlight,
                 onDismiss: {
                     withAnimation(.easeInOut(duration: 0.1)) {
@@ -296,6 +324,7 @@ struct ContentView: View {
             isVisible: activeOverlay == .find,
             placeholder: "Find on page",
             trailingText: findStatus.total > 0 ? "\(findStatus.current)/\(findStatus.total)" : nil,
+            focusRequestID: findFocusRequestID == 0 ? nil : findFocusRequestID,
             onTextChange: updateFindResults,
             onSidebarShortcut: toggleSidebar,
             onFindShortcut: toggleFind,
@@ -317,7 +346,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var keyboardCaptureLayer: some View {
-        if activeOverlay == .none || activeOverlay == .sidebar {
+        if activeOverlay == .sidebar || (activeOverlay == .none && keyboardFocusTarget == .capture) {
             KeyboardCaptureView(
                 onNewWorkspace: createNewWorkspace,
                 onNewTab: createNewTab,
@@ -334,7 +363,8 @@ struct ContentView: View {
                 onDismissSpotlight: dismissSpotlight,
                 onGoBack: goBack,
                 onGoForward: goForward,
-                onReload: reload
+                onReload: reload,
+                focusRequestID: captureFocusRequestID == 0 ? nil : captureFocusRequestID
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
@@ -377,6 +407,37 @@ struct ContentView: View {
 
     private func isVisible(tab: BrowserTab, in workspace: BrowserWorkspace) -> Bool {
         workspace.id == activeWorkspace?.id && tab.id == activeTab?.id
+    }
+
+    private func browserFocusRequestID(for tab: BrowserTab, in workspace: BrowserWorkspace) -> Int? {
+        guard keyboardFocusTarget == .browser, isVisible(tab: tab, in: workspace), browserFocusRequestID > 0 else {
+            return nil
+        }
+
+        return browserFocusRequestID
+    }
+
+    private func requestKeyboardFocus(_ target: KeyboardFocusTarget) {
+        keyboardFocusTarget = target
+
+        switch target {
+        case .browser:
+            browserFocusRequestID += 1
+        case .capture:
+            captureFocusRequestID += 1
+        case .sidebarURL:
+            sidebarURLFocusRequestID += 1
+        case .spotlight:
+            spotlightFocusRequestID += 1
+        case .commandPalette:
+            commandPaletteFocusRequestID += 1
+        case .find:
+            findFocusRequestID += 1
+        }
+    }
+
+    private func restoreDefaultKeyboardFocus() {
+        requestKeyboardFocus(.browser)
     }
 
     private func createNewWorkspace() {
@@ -896,6 +957,7 @@ struct ContentView: View {
                 activeOverlay = .none
             } else {
                 activeOverlay = .sidebar
+                requestKeyboardFocus(.capture)
             }
         }
 
@@ -905,7 +967,7 @@ struct ContentView: View {
     private func toggleSpotlight() {
         guard canHandleShortcut(.spotlight) else { return }
         if activeOverlay == .sidebar {
-            sidebarURLFocusRequestID += 1
+            requestKeyboardFocus(.sidebarURL)
             return
         }
         guard let activeTab else { return }
@@ -918,8 +980,8 @@ struct ContentView: View {
                 spotlightFocusRequestID = 0
                 activeOverlay = .none
             } else {
-                spotlightFocusRequestID += 1
                 activeOverlay = .spotlight
+                requestKeyboardFocus(.spotlight)
             }
         }
 
@@ -949,8 +1011,8 @@ struct ContentView: View {
             commandPaletteOriginTabID = activeWorkspace?.selectedTabID
             commandPaletteSelectionIndex = 0
             commandPaletteText = ""
-            commandPaletteFocusRequestID += 1
             activeOverlay = .commandPalette
+            requestKeyboardFocus(.commandPalette)
         }
 
         if shouldClearFind {
@@ -1025,11 +1087,11 @@ struct ContentView: View {
     }
 
     private func toggleFind() {
-        guard canHandleShortcut(.find) else { return }
         let trimmedFindText = findText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if activeOverlay == .find {
             if trimmedFindText.isEmpty {
+                findFocusRequestID = 0
                 withAnimation(.easeInOut(duration: 0.1)) {
                     activeOverlay = .none
                 }
@@ -1039,8 +1101,11 @@ struct ContentView: View {
             return
         }
 
+        guard canHandleShortcut(.find) else { return }
+
         withAnimation(.easeInOut(duration: 0.1)) {
             activeOverlay = .find
+            requestKeyboardFocus(.find)
         }
 
         if !trimmedFindText.isEmpty || findStatus != .empty {

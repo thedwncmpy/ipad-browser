@@ -25,6 +25,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onGoBack: () -> Void
     let onGoForward: () -> Void
     let onReload: () -> Void
+    let focusRequestID: Int?
 
     func makeUIViewController(context: Context) -> KeyCaptureViewController {
         let controller = KeyCaptureViewController()
@@ -53,7 +54,11 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onGoBack = onGoBack
         controller.onGoForward = onGoForward
         controller.onReload = onReload
-        controller.activateResponder()
+
+        if let focusRequestID, controller.lastAppliedFocusRequestID != focusRequestID {
+            controller.lastAppliedFocusRequestID = focusRequestID
+            controller.activateResponder()
+        }
     }
 }
 
@@ -74,6 +79,7 @@ final class KeyCaptureViewController: UIViewController {
     var onGoBack: (() -> Void)?
     var onGoForward: (() -> Void)?
     var onReload: (() -> Void)?
+    var lastAppliedFocusRequestID: Int?
 
     override var canBecomeFirstResponder: Bool { true }
 
@@ -95,7 +101,16 @@ final class KeyCaptureViewController: UIViewController {
             backSelector: #selector(goBack(_:)),
             forwardSelector: #selector(goForward(_:)),
             reloadSelector: #selector(reloadPage(_:))
-        )
+        ) + [
+            UIKeyCommand(input: "j", modifierFlags: [], action: #selector(selectNextTab(_:))),
+            UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(selectNextTab(_:))),
+            UIKeyCommand(input: "k", modifierFlags: [], action: #selector(selectPreviousTab(_:))),
+            UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(selectPreviousTab(_:))),
+            UIKeyCommand(input: "h", modifierFlags: [], action: #selector(selectPreviousWorkspace(_:))),
+            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(selectPreviousWorkspace(_:))),
+            UIKeyCommand(input: "l", modifierFlags: [], action: #selector(selectNextWorkspace(_:))),
+            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(selectNextWorkspace(_:)))
+        ]
     }
 
     @objc private func createNewTab(_ sender: UIKeyCommand) {
