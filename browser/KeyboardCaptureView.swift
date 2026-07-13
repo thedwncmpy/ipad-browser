@@ -25,10 +25,12 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onToggleSpotlight: () -> Void
     let onToggleCommandPalette: () -> Void
     let onToggleFind: () -> Void
+    let onToggleSettings: () -> Void
     let onDismissSpotlight: () -> Void
     let onGoBack: () -> Void
     let onGoForward: () -> Void
     let onReload: () -> Void
+    let shortcuts: [BrowserShortcutAction: BrowserShortcut]
     let focusRequestID: Int?
 
     func makeUIViewController(context: Context) -> KeyCaptureViewController {
@@ -58,10 +60,12 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onToggleSpotlight = onToggleSpotlight
         controller.onToggleCommandPalette = onToggleCommandPalette
         controller.onToggleFind = onToggleFind
+        controller.onToggleSettings = onToggleSettings
         controller.onDismissSpotlight = onDismissSpotlight
         controller.onGoBack = onGoBack
         controller.onGoForward = onGoForward
         controller.onReload = onReload
+        controller.shortcuts = shortcuts
 
         if let focusRequestID, controller.lastAppliedFocusRequestID != focusRequestID {
             controller.lastAppliedFocusRequestID = focusRequestID
@@ -87,10 +91,12 @@ final class KeyCaptureViewController: UIViewController {
     var onToggleSpotlight: (() -> Void)?
     var onToggleCommandPalette: (() -> Void)?
     var onToggleFind: (() -> Void)?
+    var onToggleSettings: (() -> Void)?
     var onDismissSpotlight: (() -> Void)?
     var onGoBack: (() -> Void)?
     var onGoForward: (() -> Void)?
     var onReload: (() -> Void)?
+    var shortcuts = BrowserShortcutStore.defaults
     var lastAppliedFocusRequestID: Int?
 
     override var canBecomeFirstResponder: Bool { true }
@@ -113,18 +119,20 @@ final class KeyCaptureViewController: UIViewController {
             spotlightSelector: #selector(toggleSpotlight(_:)),
             commandPaletteSelector: #selector(toggleCommandPalette(_:)),
             findSelector: #selector(toggleFind(_:)),
+            settingsSelector: #selector(toggleSettings(_:)),
             dismissSelector: #selector(dismissSpotlight(_:)),
             backSelector: #selector(goBack(_:)),
             forwardSelector: #selector(goForward(_:)),
-            reloadSelector: #selector(reloadPage(_:))
+            reloadSelector: #selector(reloadPage(_:)),
+            shortcuts: shortcuts
         ) + [
-            UIKeyCommand(input: "j", modifierFlags: [], action: #selector(selectNextTab(_:))),
+            shortcuts[.sidebarModeNextTab, default: BrowserShortcutStore.defaults[.sidebarModeNextTab]!].makeCommand(action: #selector(selectNextTab(_:))),
             UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(selectNextTab(_:))),
-            UIKeyCommand(input: "k", modifierFlags: [], action: #selector(selectPreviousTab(_:))),
+            shortcuts[.sidebarModePreviousTab, default: BrowserShortcutStore.defaults[.sidebarModePreviousTab]!].makeCommand(action: #selector(selectPreviousTab(_:))),
             UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(selectPreviousTab(_:))),
-            UIKeyCommand(input: "h", modifierFlags: [], action: #selector(selectPreviousWorkspace(_:))),
+            shortcuts[.sidebarModePreviousWorkspace, default: BrowserShortcutStore.defaults[.sidebarModePreviousWorkspace]!].makeCommand(action: #selector(selectPreviousWorkspace(_:))),
             UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(selectPreviousWorkspace(_:))),
-            UIKeyCommand(input: "l", modifierFlags: [], action: #selector(selectNextWorkspace(_:))),
+            shortcuts[.sidebarModeNextWorkspace, default: BrowserShortcutStore.defaults[.sidebarModeNextWorkspace]!].makeCommand(action: #selector(selectNextWorkspace(_:))),
             UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(selectNextWorkspace(_:)))
         ]
     }
@@ -208,6 +216,10 @@ final class KeyCaptureViewController: UIViewController {
 
     @objc private func toggleFind(_ sender: UIKeyCommand) {
         onToggleFind?()
+    }
+
+    @objc private func toggleSettings(_ sender: UIKeyCommand) {
+        onToggleSettings?()
     }
 
     @objc private func dismissSpotlight(_ sender: UIKeyCommand) {

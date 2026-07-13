@@ -49,8 +49,10 @@ struct SidebarView: View {
     let onSpotlightShortcut: (() -> Void)?
     let onCommandPaletteShortcut: (() -> Void)?
     let onFindShortcut: (() -> Void)?
+    let onSettingsShortcut: (() -> Void)?
     let onDismiss: (() -> Void)?
     let onSubmit: () -> Void
+    let shortcuts: [BrowserShortcutAction: BrowserShortcut]
 
     var body: some View {
         GeometryReader { geometry in
@@ -91,7 +93,8 @@ struct SidebarView: View {
                 focusRequestID: urlFieldFocusRequestID,
                 onSubmit: onSubmit,
                 onTextChange: nil,
-                onShortcut: handleShortcut
+                onShortcut: handleShortcut,
+                shortcuts: shortcuts
             )
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 20)
@@ -176,9 +179,13 @@ struct SidebarView: View {
             onCommandPaletteShortcut?()
         case .find:
             onFindShortcut?()
+        case .settings:
+            onSettingsShortcut?()
         case .nextOption:
             break
         case .previousOption:
+            break
+        case .completeOption:
             break
         case .dismiss:
             onDismiss?()
@@ -208,7 +215,9 @@ struct SidebarView: View {
         onSpotlightShortcut: nil,
         onCommandPaletteShortcut: nil,
         onFindShortcut: nil,
+        onSettingsShortcut: nil,
         onDismiss: nil,
-        onSubmit: {}
+        onSubmit: {},
+        shortcuts: BrowserShortcutStore.defaults
     )
 }

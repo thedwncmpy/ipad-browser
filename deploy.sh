@@ -6,7 +6,7 @@ set -euo pipefail
 # --- Configuration ---
 DEVICE_ID="00008142-001E415022F3801C"
 SCHEME="browser"
-BUNDLE_ID="thedwncmpy.browser"
+BUNDLE_ID="thedwncmpy.ibrowser"
 APP_PATH="./build/Build/Products/Debug-iphoneos/browser.app"
 LOG_DIR="./logs"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
@@ -38,9 +38,9 @@ echo "Logging deploy output to ${LOG_FILE}"
 CURRENT_STEP="build"
 echo -e "${BLUE}🚀 Step 1: Building ${SCHEME}...${NC}"
 xcodebuild -scheme "$SCHEME" \
-           -destination "id=$DEVICE_ID" \
-           -derivedDataPath ./build \
-           clean build
+  -destination "id=$DEVICE_ID" \
+  -derivedDataPath ./build \
+  clean build
 
 CURRENT_STEP="install"
 echo -e "${BLUE}📲 Step 2: Installing to device ${DEVICE_ID}...${NC}"

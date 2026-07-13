@@ -24,11 +24,13 @@ final class BrowserWKWebView: WKWebView {
     var onToggleSpotlight: (() -> Void)?
     var onToggleCommandPalette: (() -> Void)?
     var onToggleFind: (() -> Void)?
+    var onToggleSettings: (() -> Void)?
     var onDismissOverlay: (() -> Void)?
     var onGoBackShortcut: (() -> Void)?
     var onGoForwardShortcut: (() -> Void)?
     var onReloadShortcut: (() -> Void)?
     var isSidebarNavigationEnabled = false
+    var shortcuts = BrowserShortcutStore.defaults
 
     override var keyCommands: [UIKeyCommand]? {
         var commands = BrowserKeyboardCommands.makeKeyCommands(
@@ -48,21 +50,23 @@ final class BrowserWKWebView: WKWebView {
             spotlightSelector: #selector(handleSpotlightToggle(_:)),
             commandPaletteSelector: #selector(handleCommandPaletteToggle(_:)),
             findSelector: #selector(handleFindToggle(_:)),
+            settingsSelector: #selector(handleSettingsToggle(_:)),
             dismissSelector: #selector(handleDismiss(_:)),
             backSelector: #selector(handleGoBack(_:)),
             forwardSelector: #selector(handleGoForward(_:)),
-            reloadSelector: #selector(handleReload(_:))
+            reloadSelector: #selector(handleReload(_:)),
+            shortcuts: shortcuts
         )
 
         if isSidebarNavigationEnabled {
             commands.append(contentsOf: [
-                sidebarNavigationCommand(input: "j", action: #selector(handleNextTab(_:))),
+                shortcuts[.sidebarModeNextTab, default: BrowserShortcutStore.defaults[.sidebarModeNextTab]!].makeCommand(action: #selector(handleNextTab(_:))),
                 sidebarNavigationCommand(input: UIKeyCommand.inputDownArrow, action: #selector(handleNextTab(_:))),
-                sidebarNavigationCommand(input: "k", action: #selector(handlePreviousTab(_:))),
+                shortcuts[.sidebarModePreviousTab, default: BrowserShortcutStore.defaults[.sidebarModePreviousTab]!].makeCommand(action: #selector(handlePreviousTab(_:))),
                 sidebarNavigationCommand(input: UIKeyCommand.inputUpArrow, action: #selector(handlePreviousTab(_:))),
-                sidebarNavigationCommand(input: "h", action: #selector(handlePreviousWorkspace(_:))),
+                shortcuts[.sidebarModePreviousWorkspace, default: BrowserShortcutStore.defaults[.sidebarModePreviousWorkspace]!].makeCommand(action: #selector(handlePreviousWorkspace(_:))),
                 sidebarNavigationCommand(input: UIKeyCommand.inputLeftArrow, action: #selector(handlePreviousWorkspace(_:))),
-                sidebarNavigationCommand(input: "l", action: #selector(handleNextWorkspace(_:))),
+                shortcuts[.sidebarModeNextWorkspace, default: BrowserShortcutStore.defaults[.sidebarModeNextWorkspace]!].makeCommand(action: #selector(handleNextWorkspace(_:))),
                 sidebarNavigationCommand(input: UIKeyCommand.inputRightArrow, action: #selector(handleNextWorkspace(_:)))
             ])
         }
@@ -138,6 +142,10 @@ final class BrowserWKWebView: WKWebView {
 
     @objc private func handleFindToggle(_ sender: UIKeyCommand) {
         onToggleFind?()
+    }
+
+    @objc private func handleSettingsToggle(_ sender: UIKeyCommand) {
+        onToggleSettings?()
     }
 
     @objc private func handleDismiss(_ sender: UIKeyCommand) {
@@ -421,10 +429,28 @@ struct BrowserWebView: UIViewRepresentable {
     let onToggleSpotlight: () -> Void
     let onToggleCommandPalette: () -> Void
     let onToggleFind: () -> Void
+    let onToggleSettings: () -> Void
     let onDismissOverlay: () -> Void
     let onGoBack: () -> Void
     let onGoForward: () -> Void
     let onReload: () -> Void
+    let shortcuts: [BrowserShortcutAction: BrowserShortcut]
+
+    private static func makeWebViewConfiguration() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.preferredContentMode = .desktop
+
+        return configuration
+    }
+
+    private static let desktopSafariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+
+    private static func desktopRequest(for url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.setValue(desktopSafariUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("?0", forHTTPHeaderField: "Sec-CH-UA-Mobile")
+        return request
+    }
 
     func makeUIView(context: Context) -> BrowserWKWebView {
         let webView: BrowserWKWebView
@@ -435,7 +461,9 @@ struct BrowserWebView: UIViewRepresentable {
             webView.removeFromSuperview()
             shouldLoadInitialURL = false
         } else {
-            webView = BrowserWKWebView()
+            let configuration = Self.makeWebViewConfiguration()
+            webView = BrowserWKWebView(frame: .zero, configuration: configuration)
+            webView.customUserAgent = Self.desktopSafariUserAgent
             shouldLoadInitialURL = true
         }
 
@@ -446,7 +474,7 @@ struct BrowserWebView: UIViewRepresentable {
         configureShortcuts(for: webView)
 
         if shouldLoadInitialURL {
-            load(url, in: webView)
+            load(url, in: webView, deferUntilLaidOut: true)
         }
 
         currentURLString = url.absoluteString
@@ -494,11 +522,13 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onToggleSpotlight = onToggleSpotlight
         webView.onToggleCommandPalette = onToggleCommandPalette
         webView.onToggleFind = onToggleFind
+        webView.onToggleSettings = onToggleSettings
         webView.onDismissOverlay = onDismissOverlay
         webView.onGoBackShortcut = onGoBack
         webView.onGoForwardShortcut = onGoForward
         webView.onReloadShortcut = onReload
         webView.isSidebarNavigationEnabled = isSidebarNavigationEnabled
+        webView.shortcuts = shortcuts
     }
 
     private func syncSidebarNavigationMode(in webView: WKWebView, context: Context) {
@@ -509,11 +539,22 @@ struct BrowserWebView: UIViewRepresentable {
         context.coordinator.applySidebarNavigationMode(to: webView)
     }
 
-    private func load(_ url: URL, in webView: WKWebView) {
+    private func load(_ url: URL, in webView: WKWebView, deferUntilLaidOut: Bool = false, attempt: Int = 0) {
+        if deferUntilLaidOut,
+           url != BrowserHomePage.url,
+           webView.bounds.width <= 0,
+           attempt < 20
+        {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                load(url, in: webView, deferUntilLaidOut: true, attempt: attempt + 1)
+            }
+            return
+        }
+
         if url == BrowserHomePage.url {
             webView.loadHTMLString(BrowserHomePage.html(), baseURL: nil)
         } else {
-            webView.load(URLRequest(url: url))
+            webView.load(Self.desktopRequest(for: url))
         }
     }
 }
@@ -538,6 +579,9 @@ extension BrowserWebView {
                 guard let self else { return }
                 self.syncObservedURL(from: webView.url)
             }
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -575,7 +619,7 @@ extension BrowserWebView {
                 lastRequestedURL = targetURL
                 url = targetURL
                 currentURLString = targetURL.absoluteString
-                webView.load(URLRequest(url: targetURL))
+                webView.load(BrowserWebView.desktopRequest(for: targetURL))
                 return
             }
 
@@ -587,7 +631,7 @@ extension BrowserWebView {
             let isHomePageLink = webView.url == nil || webView.url == BrowserHomePage.url
             if isHomePageLink, requestURL.scheme?.hasPrefix("http") == true {
                 decisionHandler(.cancel)
-                webView.load(URLRequest(url: requestURL))
+                webView.load(BrowserWebView.desktopRequest(for: requestURL))
                 return
             }
 
@@ -638,9 +682,11 @@ extension BrowserWebView {
         onToggleSpotlight: {},
         onToggleCommandPalette: {},
         onToggleFind: {},
+        onToggleSettings: {},
         onDismissOverlay: {},
         onGoBack: {},
         onGoForward: {},
-        onReload: {}
+        onReload: {},
+        shortcuts: BrowserShortcutStore.defaults
     )
 }

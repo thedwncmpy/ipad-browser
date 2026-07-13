@@ -12,8 +12,10 @@ struct OverlayShortcutTextField: UIViewRepresentable {
         case spotlight
         case commandPalette
         case find
+        case settings
         case nextOption
         case previousOption
+        case completeOption
         case dismiss
     }
 
@@ -22,10 +24,12 @@ struct OverlayShortcutTextField: UIViewRepresentable {
     let fontName: String
     let fontSize: CGFloat
     let textColor: UIColor
+    var autocompleteText: String? = nil
     let focusRequestID: Int?
     let onSubmit: () -> Void
     let onTextChange: ((String) -> Void)?
     let onShortcut: ((ShortcutAction) -> Void)?
+    let shortcuts: [BrowserShortcutAction: BrowserShortcut]
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, onSubmit: onSubmit, onTextChange: onTextChange)
@@ -59,8 +63,11 @@ struct OverlayShortcutTextField: UIViewRepresentable {
         uiView.textColor = textColor
         uiView.tintColor = textColor
         uiView.font = UIFont(name: fontName, size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        uiView.autocompleteText = autocompleteText ?? ""
+        uiView.autocompleteTextColor = textColor.withAlphaComponent(0.32)
         uiView.shortcutHandler = onShortcut
         uiView.focusCoordinator = context.coordinator
+        uiView.shortcuts = shortcuts
 
         if let focusRequestID, context.coordinator.lastAppliedFocusRequestID != focusRequestID {
             context.coordinator.lastAppliedFocusRequestID = focusRequestID
@@ -98,10 +105,85 @@ struct OverlayShortcutTextField: UIViewRepresentable {
 final class ShortcutAwareUITextField: UITextField {
     var shortcutHandler: ((OverlayShortcutTextField.ShortcutAction) -> Void)?
     weak var focusCoordinator: OverlayShortcutTextField.Coordinator?
+    var shortcuts = BrowserShortcutStore.defaults
+    var autocompleteText = "" {
+        didSet {
+            autocompleteLabel.text = autocompleteText
+            setNeedsLayout()
+        }
+    }
+    var autocompleteTextColor = UIColor.white.withAlphaComponent(0.32) {
+        didSet {
+            autocompleteLabel.textColor = autocompleteTextColor
+        }
+    }
+
+    private let autocompleteLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configureAutocompleteLabel()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureAutocompleteLabel()
+    }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         applyPendingFocusIfNeeded()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutAutocompleteLabel()
+    }
+
+    override var font: UIFont? {
+        didSet {
+            autocompleteLabel.font = font
+            setNeedsLayout()
+        }
+    }
+
+    override var text: String? {
+        didSet {
+            setNeedsLayout()
+        }
+    }
+
+    private func configureAutocompleteLabel() {
+        autocompleteLabel.backgroundColor = .clear
+        autocompleteLabel.isUserInteractionEnabled = false
+        autocompleteLabel.textColor = autocompleteTextColor
+        autocompleteLabel.lineBreakMode = .byClipping
+        addSubview(autocompleteLabel)
+    }
+
+    private func layoutAutocompleteLabel() {
+        let typedText = text ?? ""
+        guard !typedText.isEmpty, !autocompleteText.isEmpty else {
+            autocompleteLabel.frame = .zero
+            return
+        }
+
+        let bounds = textRect(forBounds: bounds)
+        let typedWidth = textWidth(for: typedText)
+        let remainingWidth = max(0, bounds.width - typedWidth)
+        autocompleteLabel.frame = CGRect(
+            x: bounds.minX + typedWidth,
+            y: bounds.minY,
+            width: remainingWidth,
+            height: bounds.height
+        )
+    }
+
+    private func textWidth(for text: String) -> CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? .systemFont(ofSize: UIFont.systemFontSize)
+        ]
+        return ceil((text as NSString).size(withAttributes: attributes).width)
     }
 
     func applyPendingFocusIfNeeded() {
@@ -115,13 +197,16 @@ final class ShortcutAwareUITextField: UITextField {
 
     override var keyCommands: [UIKeyCommand]? {
         [
-            prioritizedKeyCommand(input: "/", modifiers: [.command], action: #selector(handleSidebarShortcut(_:))),
-            prioritizedKeyCommand(input: "l", modifiers: [.command], action: #selector(handleSpotlightShortcut(_:))),
-            prioritizedKeyCommand(input: " ", modifiers: [.alternate], action: #selector(handleCommandPaletteShortcut(_:))),
-            prioritizedKeyCommand(input: "f", modifiers: [.command], action: #selector(handleFindShortcut(_:))),
+            shortcuts[.sidebar, default: BrowserShortcutStore.defaults[.sidebar]!].makeCommand(action: #selector(handleSidebarShortcut(_:))),
+            shortcuts[.spotlight, default: BrowserShortcutStore.defaults[.spotlight]!].makeCommand(action: #selector(handleSpotlightShortcut(_:))),
+            shortcuts[.spotlightAlternate, default: BrowserShortcutStore.defaults[.spotlightAlternate]!].makeCommand(action: #selector(handleSpotlightShortcut(_:))),
+            shortcuts[.commandPalette, default: BrowserShortcutStore.defaults[.commandPalette]!].makeCommand(action: #selector(handleCommandPaletteShortcut(_:))),
+            shortcuts[.find, default: BrowserShortcutStore.defaults[.find]!].makeCommand(action: #selector(handleFindShortcut(_:))),
+            shortcuts[.settings, default: BrowserShortcutStore.defaults[.settings]!].makeCommand(action: #selector(handleSettingsShortcut(_:))),
             prioritizedKeyCommand(input: "j", modifiers: [.control], action: #selector(handleNextOptionShortcut(_:))),
             prioritizedKeyCommand(input: "k", modifiers: [.control], action: #selector(handlePreviousOptionShortcut(_:))),
-            prioritizedKeyCommand(input: UIKeyCommand.inputEscape, modifiers: [], action: #selector(handleDismissShortcut(_:)))
+            prioritizedKeyCommand(input: "\t", modifiers: [], action: #selector(handleCompleteOptionShortcut(_:))),
+            shortcuts[.dismiss, default: BrowserShortcutStore.defaults[.dismiss]!].makeCommand(action: #selector(handleDismissShortcut(_:)))
         ]
     }
 
@@ -147,12 +232,20 @@ final class ShortcutAwareUITextField: UITextField {
         shortcutHandler?(.find)
     }
 
+    @objc private func handleSettingsShortcut(_ sender: UIKeyCommand) {
+        shortcutHandler?(.settings)
+    }
+
     @objc private func handleNextOptionShortcut(_ sender: UIKeyCommand) {
         shortcutHandler?(.nextOption)
     }
 
     @objc private func handlePreviousOptionShortcut(_ sender: UIKeyCommand) {
         shortcutHandler?(.previousOption)
+    }
+
+    @objc private func handleCompleteOptionShortcut(_ sender: UIKeyCommand) {
+        shortcutHandler?(.completeOption)
     }
 
     @objc private func handleDismissShortcut(_ sender: UIKeyCommand) {

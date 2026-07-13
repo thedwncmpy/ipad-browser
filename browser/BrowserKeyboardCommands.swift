@@ -23,117 +23,49 @@ enum BrowserKeyboardCommands {
         spotlightSelector: Selector,
         commandPaletteSelector: Selector,
         findSelector: Selector,
+        settingsSelector: Selector,
         dismissSelector: Selector,
         backSelector: Selector,
         forwardSelector: Selector,
-        reloadSelector: Selector
+        reloadSelector: Selector,
+        shortcuts: [BrowserShortcutAction: BrowserShortcut]
     ) -> [UIKeyCommand] {
-        [
-            UIKeyCommand(
-                input: "n",
-                modifierFlags: [.command],
-                action: newWorkspaceSelector
-            ),
-            UIKeyCommand(
-                input: "t",
-                modifierFlags: [.command],
-                action: newTabSelector
-            ),
-            UIKeyCommand(
-                input: "w",
-                modifierFlags: [.command, .shift],
-                action: closeWorkspaceSelector
-            ),
-            UIKeyCommand(
-                input: "w",
-                modifierFlags: [.command],
-                action: closeTabSelector
-            ),
-            UIKeyCommand(
-                input: "h",
-                modifierFlags: [.control],
-                action: previousWorkspaceSelector
-            ),
-            UIKeyCommand(
-                input: "l",
-                modifierFlags: [.control],
-                action: nextWorkspaceSelector
-            ),
-            UIKeyCommand(
-                input: "j",
-                modifierFlags: [.control],
-                action: nextTabSelector
-            ),
-            UIKeyCommand(
-                input: "k",
-                modifierFlags: [.control],
-                action: previousTabSelector
-            ),
-            UIKeyCommand(
-                input: "l",
-                modifierFlags: [.control, .shift],
-                action: moveTabToNextWorkspaceSelector
-            ),
-            UIKeyCommand(
-                input: "h",
-                modifierFlags: [.control, .shift],
-                action: moveTabToPreviousWorkspaceSelector
-            ),
-            UIKeyCommand(
-                input: "j",
-                modifierFlags: [.control, .shift],
-                action: moveTabDownSelector
-            ),
-            UIKeyCommand(
-                input: "k",
-                modifierFlags: [.control, .shift],
-                action: moveTabUpSelector
-            ),
-            UIKeyCommand(
-                input: "/",
-                modifierFlags: [.command],
-                action: sidebarSelector
-            ),
-            UIKeyCommand(
-                input: "l",
-                modifierFlags: [.command],
-                action: spotlightSelector
-            ),
-            UIKeyCommand(
-                input: " ",
-                modifierFlags: [.alternate],
-                action: commandPaletteSelector
-            ),
-            UIKeyCommand(
-                input: "f",
-                modifierFlags: [.command],
-                action: findSelector
-            ),
-            UIKeyCommand(
-                input: " ",
-                modifierFlags: [.command, .shift],
-                action: spotlightSelector
-            ),
-            UIKeyCommand(
-                input: UIKeyCommand.inputEscape,
-                modifierFlags: [],
-                action: dismissSelector
-            ),
-            UIKeyCommand(
-                input: "[",
-                modifierFlags: [.command],
-                action: backSelector
-            ),
-            UIKeyCommand(
-                input: "]",
-                modifierFlags: [.command],
-                action: forwardSelector
-            ),
-            UIKeyCommand(
-                input: "r",
-                modifierFlags: [.command],
-                action: reloadSelector
-            ),
+        let selectorByAction: [BrowserShortcutAction: Selector] = [
+            .newWorkspace: newWorkspaceSelector,
+            .newTab: newTabSelector,
+            .closeWorkspace: closeWorkspaceSelector,
+            .closeTab: closeTabSelector,
+            .previousWorkspace: previousWorkspaceSelector,
+            .nextWorkspace: nextWorkspaceSelector,
+            .nextTab: nextTabSelector,
+            .previousTab: previousTabSelector,
+            .moveTabToPreviousWorkspace: moveTabToPreviousWorkspaceSelector,
+            .moveTabToNextWorkspace: moveTabToNextWorkspaceSelector,
+            .moveTabDown: moveTabDownSelector,
+            .moveTabUp: moveTabUpSelector,
+            .sidebar: sidebarSelector,
+            .spotlight: spotlightSelector,
+            .spotlightAlternate: spotlightSelector,
+            .commandPalette: commandPaletteSelector,
+            .find: findSelector,
+            .settings: settingsSelector,
+            .dismiss: dismissSelector,
+            .back: backSelector,
+            .forward: forwardSelector,
+            .reload: reloadSelector
         ]
+
+        let commands = BrowserShortcutAction.allCases.compactMap { action -> UIKeyCommand? in
+            guard let selector = selectorByAction[action],
+                  let fallback = BrowserShortcutStore.defaults[action]
+            else { return nil }
+
+            return shortcuts[action, default: fallback].makeCommand(action: selector)
+        }
+
+        return commands.map { command in
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
     }
 }

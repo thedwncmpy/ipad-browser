@@ -17,6 +17,7 @@ struct ContentView: View {
         case spotlight
         case commandPalette
         case find
+        case settings
     }
 
     private enum KeyboardFocusTarget {
@@ -45,6 +46,7 @@ struct ContentView: View {
         case spotlight
         case commandPalette
         case find
+        case settings
         case dismiss
     }
 
@@ -102,6 +104,8 @@ struct ContentView: View {
     }
 
     private enum CommandPaletteSuggestionKind {
+        case command(BrowserCommand)
+        case commandCompletion(String)
         case openNew(String)
         case openTabMatch(CommandPaletteTabMatch)
     }
@@ -111,6 +115,14 @@ struct ContentView: View {
         let title: String
         let subtitle: String?
         let kind: CommandPaletteSuggestionKind
+    }
+
+    private struct CommandPaletteCompletion {
+        let id: String
+        let title: String
+        let subtitle: String
+        let completion: String
+        let tokens: [String]
     }
 
     @State private var activeOverlay: ActiveOverlay = .none
@@ -132,6 +144,7 @@ struct ContentView: View {
     @State private var captureFocusRequestID = 0
     @State private var keyboardFocusTarget: KeyboardFocusTarget = .browser
     @State private var favorites: [BrowserFavorite] = []
+    @State private var shortcuts: [BrowserShortcutAction: BrowserShortcut] = BrowserShortcutStore.load()
     @State private var tabRenderVersion = 0
     @State private var lastShortcutAction: ShortcutAction?
     @State private var lastShortcutTimestamp = Date.distantPast
@@ -144,6 +157,7 @@ struct ContentView: View {
             spotlight
             commandPalette
             findOverlay
+            settingsOverlay
             keyboardCaptureLayer
         }
         .onAppear {
@@ -240,10 +254,12 @@ struct ContentView: View {
                         onToggleSpotlight: toggleSpotlight,
                         onToggleCommandPalette: toggleCommandPalette,
                         onToggleFind: toggleFind,
+                        onToggleSettings: toggleSettings,
                         onDismissOverlay: dismissSpotlight,
                         onGoBack: goBack,
                         onGoForward: goForward,
-                        onReload: reload
+                        onReload: reload,
+                        shortcuts: shortcuts
                     )
                     .ignoresSafeArea()
                     .opacity(isVisible(tab: tab, in: workspace) ? 1 : 0)
@@ -271,8 +287,10 @@ struct ContentView: View {
                 onSpotlightShortcut: toggleSpotlight,
                 onCommandPaletteShortcut: toggleCommandPalette,
                 onFindShortcut: toggleFind,
+                onSettingsShortcut: toggleSettings,
                 onDismiss: dismissSpotlight,
-                onSubmit: submitSidebarURL
+                onSubmit: submitSidebarURL,
+                shortcuts: shortcuts
             )
             .transition(.move(edge: .leading))
             .zIndex(1)
@@ -291,6 +309,8 @@ struct ContentView: View {
                 onFindShortcut: toggleFind,
                 onSpotlightShortcut: toggleSpotlight,
                 onCommandPaletteShortcut: toggleCommandPalette,
+                onSettingsShortcut: toggleSettings,
+                shortcuts: shortcuts,
                 onSubmit: submitSpotlight,
                 onDismiss: {
                     withAnimation(.easeInOut(duration: 0.1)) {
@@ -312,14 +332,18 @@ struct ContentView: View {
                 showsFavicon: commandPaletteFaviconURL != nil,
                 showsFaviconPlaceholder: false,
                 focusRequestID: commandPaletteFocusRequestID == 0 ? nil : commandPaletteFocusRequestID,
+                autocompleteText: commandPaletteAutocompleteText,
                 suggestions: commandPaletteSuggestions,
                 onTextChange: { _ in resetCommandPaletteSelection() },
                 onSidebarShortcut: toggleSidebar,
                 onFindShortcut: toggleFind,
                 onSpotlightShortcut: toggleSpotlight,
                 onCommandPaletteShortcut: toggleCommandPalette,
+                onSettingsShortcut: toggleSettings,
                 onNextSuggestionShortcut: selectNextCommandPaletteSuggestion,
                 onPreviousSuggestionShortcut: selectPreviousCommandPaletteSuggestion,
+                onCompleteSuggestionShortcut: completeSelectedCommandPaletteSuggestion,
+                shortcuts: shortcuts,
                 onSubmit: submitCommandPalette,
                 onDismiss: {
                     closeCommandPalette(restoreSelection: true)
@@ -340,6 +364,8 @@ struct ContentView: View {
             onSidebarShortcut: toggleSidebar,
             onFindShortcut: toggleFind,
             onSpotlightShortcut: toggleSpotlight,
+            onSettingsShortcut: toggleSettings,
+            shortcuts: shortcuts,
             onSubmit: {
                 activeTab?.navigationController.findNext { status in
                     findStatus = status
@@ -353,6 +379,21 @@ struct ContentView: View {
             }
         )
         .zIndex(activeOverlay == .find ? 1 : -1)
+    }
+
+    @ViewBuilder
+    private var settingsOverlay: some View {
+        if activeOverlay == .settings {
+            SettingsView(
+                shortcuts: $shortcuts,
+                onDismiss: {
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        activeOverlay = .none
+                    }
+                }
+            )
+            .zIndex(2)
+        }
     }
 
     @ViewBuilder
@@ -375,10 +416,12 @@ struct ContentView: View {
                 onToggleSpotlight: toggleSpotlight,
                 onToggleCommandPalette: toggleCommandPalette,
                 onToggleFind: toggleFind,
+                onToggleSettings: toggleSettings,
                 onDismissSpotlight: dismissSpotlight,
                 onGoBack: goBack,
                 onGoForward: goForward,
                 onReload: reload,
+                shortcuts: shortcuts,
                 focusRequestID: captureFocusRequestID == 0 ? nil : captureFocusRequestID
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -778,7 +821,8 @@ struct ContentView: View {
 
         switch commandToken {
         case "ot":
-            _ = createTab(in: activeWorkspace, rawInput: argument.isEmpty ? nil : argument)
+            let destination = favorite(forAlias: argument)?.urlString ?? argument
+            _ = createTab(in: activeWorkspace, rawInput: destination.isEmpty ? nil : destination)
             return true
         case "fav":
             return handleFavoriteCommand(argument)
@@ -797,15 +841,20 @@ struct ContentView: View {
         let query = commandPaletteText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard shouldShowCommandPaletteSuggestions(for: query) else { return [] }
 
+        var suggestions = matchingCommandSuggestions(for: query)
+        suggestions.append(contentsOf: matchingCommandCompletionSuggestions(for: query))
+        suggestions.append(contentsOf: matchingFavoriteAliasCompletionSuggestions(for: query))
+
         let matches = matchingOpenTabs(for: query)
-        var suggestions: [CommandPaletteSuggestionItem] = [
-            CommandPaletteSuggestionItem(
+
+        if shouldShowOpenNewTabSuggestion(for: query) {
+            suggestions.append(CommandPaletteSuggestionItem(
                 id: "open-new-\(query.lowercased())",
                 title: "Open New Tab",
                 subtitle: query,
                 kind: .openNew(query)
-            )
-        ]
+            ))
+        }
 
         suggestions.append(contentsOf: matches.map { match in
             CommandPaletteSuggestionItem(
@@ -829,6 +878,25 @@ struct ContentView: View {
                 action: { executeCommandPaletteSuggestion(at: index) }
             )
         }
+    }
+
+    private var commandPaletteAutocompleteText: String? {
+        guard !commandPaletteSuggestionItems.isEmpty else { return nil }
+        let query = commandPaletteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return nil }
+
+        let completion: String?
+        switch commandPaletteSuggestionItems[normalizedCommandPaletteSelectionIndex].kind {
+        case .command(let command):
+            completion = bestCommandCompletion(for: query, command: command)
+        case .commandCompletion(let commandCompletion):
+            completion = commandCompletion
+        case .openNew, .openTabMatch:
+            completion = nil
+        }
+
+        guard let completion else { return nil }
+        return autocompleteSuffix(for: query, completion: completion)
     }
 
     private var commandPaletteFaviconURL: URL? {
@@ -894,8 +962,140 @@ struct ContentView: View {
 
     private func shouldShowCommandPaletteSuggestions(for query: String) -> Bool {
         guard !query.isEmpty else { return false }
-        if matchingCommand(for: query) != nil { return false }
-        return !query.lowercased().hasPrefix("fav add ")
+        return true
+    }
+
+    private func shouldShowOpenNewTabSuggestion(for query: String) -> Bool {
+        !query.lowercased().hasPrefix("fav add ")
+    }
+
+    private func matchingCommandSuggestions(for query: String) -> [CommandPaletteSuggestionItem] {
+        let normalizedQuery = query.lowercased()
+        guard !normalizedQuery.isEmpty else { return [] }
+
+        return BrowserCommand.allCases.compactMap { command in
+            let candidates = [command.title.lowercased()] + command.queryTokens
+            guard candidates.contains(where: { $0.hasPrefix(normalizedQuery) }) else { return nil }
+
+            return CommandPaletteSuggestionItem(
+                id: "command-\(command.title.lowercased().replacingOccurrences(of: " ", with: "-"))",
+                title: command.title,
+                subtitle: command.queryTokens.first,
+                kind: .command(command)
+            )
+        }
+    }
+
+    private func bestCommandCompletion(for query: String, command: BrowserCommand) -> String {
+        let normalizedQuery = query.lowercased()
+        let candidates = [command.title] + command.queryTokens
+        return candidates.first { candidate in
+            candidate.lowercased().hasPrefix(normalizedQuery)
+        } ?? command.title
+    }
+
+    private func autocompleteSuffix(for query: String, completion: String) -> String? {
+        guard completion.count > query.count else { return nil }
+        guard completion.lowercased().hasPrefix(query.lowercased()) else { return nil }
+
+        let suffixStart = completion.index(completion.startIndex, offsetBy: query.count)
+        let suffix = String(completion[suffixStart...])
+        return suffix.isEmpty ? nil : suffix
+    }
+
+    private func matchingCommandCompletionSuggestions(for query: String) -> [CommandPaletteSuggestionItem] {
+        let normalizedQuery = query.lowercased()
+        guard !normalizedQuery.isEmpty else { return [] }
+
+        return commandCompletions.compactMap { completion in
+            guard completion.tokens.contains(where: { $0.hasPrefix(normalizedQuery) }) else { return nil }
+
+            return CommandPaletteSuggestionItem(
+                id: "completion-\(completion.id)",
+                title: completion.title,
+                subtitle: completion.subtitle,
+                kind: .commandCompletion(completion.completion)
+            )
+        }
+    }
+
+    private var commandCompletions: [CommandPaletteCompletion] {
+        [
+            CommandPaletteCompletion(
+                id: "open-new-tab-with-input",
+                title: "Open New Tab",
+                subtitle: "ot <url or search>",
+                completion: "ot ",
+                tokens: ["ot", "open new tab", "open tab", "new tab with url", "new tab search"]
+            ),
+            CommandPaletteCompletion(
+                id: "open-favorite",
+                title: "Open Favorite",
+                subtitle: "fav <alias>",
+                completion: "fav",
+                tokens: ["fav", "favorite", "open favorite", "open bookmark"]
+            ),
+            CommandPaletteCompletion(
+                id: "add-favorite",
+                title: "Add Favorite",
+                subtitle: "fav add <alias>",
+                completion: "fav add",
+                tokens: ["fav add", "add favorite", "bookmark add", "save favorite"]
+            ),
+            CommandPaletteCompletion(
+                id: "remove-favorite",
+                title: "Remove Favorite",
+                subtitle: "unfav <alias>",
+                completion: "unfav",
+                tokens: ["unfav", "remove favorite", "delete favorite", "remove bookmark"]
+            )
+        ]
+    }
+
+    private func matchingFavoriteAliasCompletionSuggestions(for query: String) -> [CommandPaletteSuggestionItem] {
+        let parts = query.split(maxSplits: 1, whereSeparator: \.isWhitespace).map(String.init)
+        guard let firstPart = parts.first?.lowercased() else { return [] }
+
+        let commandPrefix: String
+        let aliasQuery: String
+        let titlePrefix: String
+
+        switch firstPart {
+        case "ot":
+            commandPrefix = "ot "
+            aliasQuery = parts.count > 1 ? parts[1] : ""
+            titlePrefix = "Open Favorite in New Tab"
+        case "fav":
+            commandPrefix = "fav "
+            aliasQuery = parts.count > 1 ? parts[1] : ""
+            titlePrefix = "Open Favorite"
+        case "unfav":
+            commandPrefix = "unfav "
+            aliasQuery = parts.count > 1 ? parts[1] : ""
+            titlePrefix = "Remove Favorite"
+        default:
+            guard parts.count == 1 else { return [] }
+            commandPrefix = ""
+            aliasQuery = query
+            titlePrefix = "Open Favorite"
+        }
+
+        let normalizedAliasQuery = aliasQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedAliasQuery.isEmpty else { return [] }
+
+        return favorites
+            .filter { favorite in
+                favorite.alias.lowercased().hasPrefix(normalizedAliasQuery) ||
+                    favorite.title.lowercased().hasPrefix(normalizedAliasQuery)
+            }
+            .map { favorite in
+                CommandPaletteSuggestionItem(
+                    id: "favorite-alias-\(commandPrefix)-\(favorite.id.uuidString)",
+                    title: "\(titlePrefix) \(favorite.alias)",
+                    subtitle: favorite.urlString,
+                    kind: .commandCompletion("\(commandPrefix)\(favorite.alias)")
+                )
+            }
     }
 
     private func matchingOpenTabs(for query: String) -> [CommandPaletteTabMatch] {
@@ -1191,10 +1391,34 @@ struct ContentView: View {
         return true
     }
 
+    private func completeSelectedCommandPaletteSuggestion() {
+        guard !commandPaletteSuggestionItems.isEmpty else { return }
+
+        switch commandPaletteSuggestionItems[normalizedCommandPaletteSelectionIndex].kind {
+        case .command(let command):
+            commandPaletteText = bestCommandCompletion(for: commandPaletteText.trimmingCharacters(in: .whitespacesAndNewlines), command: command)
+            commandPaletteSelectionIndex = 0
+            requestKeyboardFocus(.commandPalette)
+        case .commandCompletion(let completion):
+            commandPaletteText = completion
+            commandPaletteSelectionIndex = 0
+            requestKeyboardFocus(.commandPalette)
+        case .openNew, .openTabMatch:
+            break
+        }
+    }
+
     private func executeCommandPaletteSuggestion(at index: Int) {
         guard commandPaletteSuggestionItems.indices.contains(index) else { return }
 
         switch commandPaletteSuggestionItems[index].kind {
+        case .command(let command):
+            closeCommandPalette(restoreSelection: false)
+            perform(command)
+        case .commandCompletion(let completion):
+            commandPaletteText = completion
+            commandPaletteSelectionIndex = 0
+            requestKeyboardFocus(.commandPalette)
         case .openNew(let query):
             openCommandPaletteQueryInNewTab(query)
         case .openTabMatch(let match):
@@ -1209,7 +1433,7 @@ struct ContentView: View {
         }
 
         switch commandPaletteSuggestionItems[normalizedCommandPaletteSelectionIndex].kind {
-        case .openNew:
+        case .command, .commandCompletion, .openNew:
             restoreCommandPaletteOriginSelection()
         case .openTabMatch(let match):
             selectedWorkspaceID = match.workspaceID
@@ -1251,6 +1475,30 @@ struct ContentView: View {
         }
 
         if !trimmedFindText.isEmpty || findStatus != .empty {
+            clearFindState()
+        }
+    }
+
+    private func toggleSettings() {
+        guard canHandleShortcut(.settings) else { return }
+
+        let shouldClearFind = activeOverlay == .find || !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
+
+        withAnimation(.easeInOut(duration: 0.1)) {
+            if activeOverlay == .settings {
+                activeOverlay = .none
+            } else {
+                if activeOverlay == .sidebar {
+                    sidebarURLFocusRequestID = 0
+                }
+                if activeOverlay == .spotlight {
+                    spotlightFocusRequestID = 0
+                }
+                activeOverlay = .settings
+            }
+        }
+
+        if shouldClearFind {
             clearFindState()
         }
     }

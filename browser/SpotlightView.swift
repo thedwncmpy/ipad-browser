@@ -36,14 +36,18 @@ struct SpotlightView: View {
     var showsFavicon = false
     var showsFaviconPlaceholder = true
     var focusRequestID: Int? = nil
+    var autocompleteText: String? = nil
     var suggestions: [Suggestion] = []
     var onTextChange: ((String) -> Void)? = nil
     var onSidebarShortcut: (() -> Void)? = nil
     var onFindShortcut: (() -> Void)? = nil
     var onSpotlightShortcut: (() -> Void)? = nil
     var onCommandPaletteShortcut: (() -> Void)? = nil
+    var onSettingsShortcut: (() -> Void)? = nil
     var onNextSuggestionShortcut: (() -> Void)? = nil
     var onPreviousSuggestionShortcut: (() -> Void)? = nil
+    var onCompleteSuggestionShortcut: (() -> Void)? = nil
+    var shortcuts: [BrowserShortcutAction: BrowserShortcut] = BrowserShortcutStore.defaults
     let onSubmit: () -> Void
     let onDismiss: () -> Void
 
@@ -62,10 +66,12 @@ struct SpotlightView: View {
                             fontName: Style.fontName,
                             fontSize: Style.fontSize,
                             textColor: .white,
+                            autocompleteText: autocompleteText,
                             focusRequestID: focusRequestID,
                             onSubmit: onSubmit,
                             onTextChange: onTextChange,
-                            onShortcut: handleShortcut
+                            onShortcut: handleShortcut,
+                            shortcuts: shortcuts
                         )
 
                         if let trailingText {
@@ -120,10 +126,8 @@ struct SpotlightView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: Style.cornerRadius, style: .continuous))
             }
-            .position(
-                x: geometry.size.width / 2,
-                y: geometry.size.height * 0.25
-            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, max(0, geometry.size.height * 0.25 - Style.fieldHeight / 2))
         }
         .opacity(isVisible ? 1 : 0)
         .allowsHitTesting(isVisible)
@@ -141,10 +145,14 @@ struct SpotlightView: View {
             onCommandPaletteShortcut?()
         case .find:
             onFindShortcut?()
+        case .settings:
+            onSettingsShortcut?()
         case .nextOption:
             onNextSuggestionShortcut?()
         case .previousOption:
             onPreviousSuggestionShortcut?()
+        case .completeOption:
+            onCompleteSuggestionShortcut?()
         case .dismiss:
             onDismiss()
         }
