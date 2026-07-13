@@ -468,6 +468,7 @@ struct BrowserWebView: UIViewRepresentable {
         }
 
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         context.coordinator.attach(to: webView)
         context.coordinator.lastRequestedURL = url
         navigationController.attach(webView: webView)
@@ -560,7 +561,7 @@ struct BrowserWebView: UIViewRepresentable {
 }
 
 extension BrowserWebView {
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         @Binding private var url: URL
         @Binding private var currentURLString: String
         var lastRequestedURL: URL?
@@ -623,19 +624,56 @@ extension BrowserWebView {
                 return
             }
 
-            guard navigationAction.navigationType == .linkActivated else {
-                decisionHandler(.allow)
+            if shouldCancelExternalNavigation(to: requestURL) {
+                decisionHandler(.cancel)
                 return
             }
 
-            let isHomePageLink = webView.url == nil || webView.url == BrowserHomePage.url
-            if isHomePageLink, requestURL.scheme?.hasPrefix("http") == true {
+            if navigationAction.navigationType == .linkActivated,
+               requestURL.scheme?.hasPrefix("http") == true
+            {
                 decisionHandler(.cancel)
-                webView.load(BrowserWebView.desktopRequest(for: requestURL))
+                loadInCurrentWebView(requestURL, webView: webView)
                 return
             }
 
             decisionHandler(.allow)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            guard navigationAction.targetFrame == nil, let requestURL = navigationAction.request.url else {
+                return nil
+            }
+
+            guard !shouldCancelExternalNavigation(to: requestURL) else {
+                return nil
+            }
+
+            loadInCurrentWebView(requestURL, webView: webView)
+            return nil
+        }
+
+        private func loadInCurrentWebView(_ requestURL: URL, webView: WKWebView) {
+            lastRequestedURL = requestURL
+            url = requestURL
+            currentURLString = requestURL.absoluteString
+            webView.load(BrowserWebView.desktopRequest(for: requestURL))
+        }
+
+        private func shouldCancelExternalNavigation(to requestURL: URL) -> Bool {
+            guard let scheme = requestURL.scheme?.lowercased() else { return false }
+
+            switch scheme {
+            case "http", "https", "about", "blob", "data", "browser":
+                return false
+            default:
+                return true
+            }
         }
 
         private func syncObservedURL(from observedURL: URL?) {
