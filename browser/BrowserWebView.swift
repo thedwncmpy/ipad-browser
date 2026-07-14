@@ -226,47 +226,897 @@ final class BrowserNavigationController {
     func toggleErudaDeveloperTools() {
         webView?.evaluateJavaScript("""
         (() => {
-            function hideEntryButton() {
-                for (const node of Array.from(document.querySelectorAll('.eruda-entry-btn'))) {
-                    node.style.setProperty('display', 'none', 'important');
+            const state = window.__browserDebugState || (window.__browserDebugState = {
+                installed: false,
+                visible: false,
+                logs: [],
+                requests: [],
+                selectedTab: 'console',
+                sourceMode: 'tree',
+                selectedNodeID: '0',
+                expandedNodeIDs: ['0', '0.0', '0.1'],
+                selectedRequestID: null,
+                nextRequestID: 1,
+                networkListScrollTop: 0,
+                networkDetailsScrollTop: 0,
+                sourceBodyScrollTop: 0,
+                sourceTreeScrollTop: 0,
+                maxEntries: 300
+            });
+            if (state.sourceBodyScrollTop == null) state.sourceBodyScrollTop = 0;
+            if (state.sourceTreeScrollTop == null) state.sourceTreeScrollTop = 0;
+
+            const safeString = (value) => {
+                try {
+                    if (typeof value === 'string') return value;
+                    if (value instanceof Error) return value.stack || value.message;
+                    return JSON.stringify(value);
+                } catch (_) {
+                    return String(value);
                 }
-            }
-
-            function showTools() {
-                if (!window.__browserErudaInitialized && window.eruda) {
-                    window.eruda.init({
-                        tool: ['console', 'elements', 'network', 'resources', 'sources', 'info']
-                    });
-                    window.__browserErudaInitialized = true;
-                }
-
-                if (window.eruda) {
-                    window.eruda.show();
-                    hideEntryButton();
-                    requestAnimationFrame(hideEntryButton);
-                    setTimeout(hideEntryButton, 100);
-                }
-            }
-
-            if (window.eruda && window.__browserErudaVisible) {
-                window.eruda.hide();
-                window.__browserErudaVisible = false;
-                return;
-            }
-
-            if (window.eruda) {
-                showTools();
-                window.__browserErudaVisible = true;
-                return;
-            }
-
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/eruda';
-            script.onload = () => {
-                showTools();
-                window.__browserErudaVisible = true;
             };
-            document.head.appendChild(script);
+
+            const trimEntries = (items) => {
+                if (items.length > state.maxEntries) {
+                    items.splice(0, items.length - state.maxEntries);
+                }
+            };
+
+            const headersToObject = (headers) => {
+                const output = {};
+                if (!headers) return output;
+                try {
+                    if (headers instanceof Headers) {
+                        headers.forEach((value, key) => output[key] = value);
+                    } else if (Array.isArray(headers)) {
+                        headers.forEach(([key, value]) => output[key] = value);
+                    } else {
+                        Object.assign(output, headers);
+                    }
+                } catch (error) {
+                    output.error = safeString(error);
+                }
+                return output;
+            };
+
+            const bodyPreview = (body) => {
+                if (body == null) return '';
+                if (typeof body === 'string') return body.slice(0, 5000);
+                if (body instanceof URLSearchParams) return body.toString().slice(0, 5000);
+                if (body instanceof FormData) {
+                    const rows = [];
+                    body.forEach((value, key) => rows.push(`${key}: ${value instanceof File ? value.name : value}`));
+                    return rows.join('\\n').slice(0, 5000);
+                }
+                return safeString(body).slice(0, 5000);
+            };
+
+            const addRequest = (request) => {
+                const previousSelectedRequestID = state.selectedRequestID;
+                state.requests.push(request);
+                trimEntries(state.requests);
+
+                if (previousSelectedRequestID == null) {
+                    state.selectedRequestID = request.id;
+                } else if (state.requests.some((entry) => entry.id === previousSelectedRequestID)) {
+                    state.selectedRequestID = previousSelectedRequestID;
+                } else {
+                    state.selectedRequestID = state.requests.length ? state.requests[state.requests.length - 1].id : null;
+                }
+
+                window.__browserDebugRenderNetwork ? window.__browserDebugRenderNetwork() : (window.__browserDebugRender && window.__browserDebugRender());
+            };
+
+            if (!state.installed) {
+                state.installed = true;
+
+                for (const level of ['log', 'info', 'warn', 'error']) {
+                    const original = console[level];
+                    console[level] = function(...args) {
+                        state.logs.push({
+                            level,
+                            time: new Date().toLocaleTimeString(),
+                            message: args.map(safeString).join(' ')
+                        });
+                        trimEntries(state.logs);
+                        window.__browserDebugRender && window.__browserDebugRender();
+                        return original.apply(this, args);
+                    };
+                }
+
+                const originalFetch = window.fetch;
+                if (originalFetch) {
+                    window.fetch = async function(input, init) {
+                        const startedAt = performance.now();
+                        const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+                        const url = typeof input === 'string' ? input : (input && input.url) || '';
+                        const requestID = state.nextRequestID++;
+                        try {
+                            const response = await originalFetch.apply(this, arguments);
+                            const requestEntry = {
+                                id: requestID,
+                                type: 'fetch',
+                                method,
+                                url,
+                                startedAt: new Date().toLocaleTimeString(),
+                                status: response.status,
+                                statusText: response.statusText,
+                                ok: response.ok,
+                                duration: Math.round(performance.now() - startedAt),
+                                requestHeaders: headersToObject((init && init.headers) || (input && input.headers)),
+                                requestBody: bodyPreview(init && init.body),
+                                responseHeaders: headersToObject(response.headers),
+                                responseBody: ''
+                            };
+                            addRequest(requestEntry);
+                            response.clone().text().then((text) => {
+                                requestEntry.responseBody = text.slice(0, 5000);
+                                window.__browserDebugRenderNetwork ? window.__browserDebugRenderNetwork(requestEntry.id) : (window.__browserDebugRender && window.__browserDebugRender());
+                            }).catch((error) => {
+                                requestEntry.responseBody = safeString(error);
+                                window.__browserDebugRenderNetwork ? window.__browserDebugRenderNetwork(requestEntry.id) : (window.__browserDebugRender && window.__browserDebugRender());
+                            });
+                            return response;
+                        } catch (error) {
+                            addRequest({
+                                id: requestID,
+                                type: 'fetch',
+                                method,
+                                url,
+                                startedAt: new Date().toLocaleTimeString(),
+                                status: 'ERR',
+                                statusText: 'Request failed',
+                                ok: false,
+                                duration: Math.round(performance.now() - startedAt),
+                                requestHeaders: headersToObject((init && init.headers) || (input && input.headers)),
+                                requestBody: bodyPreview(init && init.body),
+                                responseHeaders: {},
+                                responseBody: '',
+                                error: safeString(error)
+                            });
+                            throw error;
+                        }
+                    };
+                }
+
+                const originalOpen = XMLHttpRequest.prototype.open;
+                const originalSend = XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    this.__browserDebugRequest = {
+                        id: state.nextRequestID++,
+                        method: String(method || 'GET').toUpperCase(),
+                        url: String(url),
+                        startedAt: 0,
+                        requestHeaders: {}
+                    };
+                    return originalOpen.apply(this, arguments);
+                };
+                const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+                XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+                    if (this.__browserDebugRequest) {
+                        this.__browserDebugRequest.requestHeaders[name] = value;
+                    }
+                    return originalSetRequestHeader.apply(this, arguments);
+                };
+                XMLHttpRequest.prototype.send = function() {
+                    const request = this.__browserDebugRequest;
+                    if (request) {
+                        request.startedAt = performance.now();
+                        request.startedAtLabel = new Date().toLocaleTimeString();
+                        request.requestBody = bodyPreview(arguments[0]);
+                        this.addEventListener('loadend', () => {
+                            let responseBody = '';
+                            try {
+                                if (typeof this.responseText === 'string') responseBody = this.responseText.slice(0, 5000);
+                            } catch (_) {}
+                            addRequest({
+                                id: request.id,
+                                type: 'xhr',
+                                method: request.method,
+                                url: request.url,
+                                startedAt: request.startedAtLabel,
+                                status: this.status || 'ERR',
+                                statusText: this.statusText || '',
+                                ok: this.status >= 200 && this.status < 400,
+                                duration: Math.round(performance.now() - request.startedAt),
+                                requestHeaders: request.requestHeaders,
+                                requestBody: request.requestBody,
+                                responseHeaders: { raw: this.getAllResponseHeaders() },
+                                responseBody
+                            });
+                        });
+                    }
+                    return originalSend.apply(this, arguments);
+                };
+
+                window.addEventListener('error', (event) => {
+                    state.logs.push({
+                        level: 'error',
+                        time: new Date().toLocaleTimeString(),
+                        message: event.message || 'Unhandled error'
+                    });
+                    trimEntries(state.logs);
+                    window.__browserDebugRender && window.__browserDebugRender();
+                });
+
+                window.addEventListener('unhandledrejection', (event) => {
+                    state.logs.push({
+                        level: 'error',
+                        time: new Date().toLocaleTimeString(),
+                        message: 'Unhandled promise rejection: ' + safeString(event.reason)
+                    });
+                    trimEntries(state.logs);
+                    window.__browserDebugRender && window.__browserDebugRender();
+                });
+            }
+
+            function ensureDrawer() {
+                let root = document.getElementById('browser-debug-drawer');
+                if (root) return root;
+
+                const style = document.createElement('style');
+                style.id = 'browser-debug-style';
+                style.textContent = `
+                    #browser-debug-drawer {
+                        position: fixed;
+                        left: 50%;
+                        top: 50%;
+                        width: min(96vw, 1180px);
+                        height: min(calc(100vh - 48px), 820px);
+                        z-index: 2147483647;
+                        display: grid;
+                        grid-template-rows: auto 1fr;
+                        transform: translate(-50%, -50%);
+                        background: #000000;
+                        color: #ffffff;
+                        border: 1px solid rgba(255,255,255,0.18);
+                        border-radius: 10px;
+                        box-shadow: none;
+                        overflow: hidden;
+                        font: 14px "LilexNFM-Regular", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+                    }
+                    #browser-debug-drawer[hidden] { display: none !important; }
+                    #browser-debug-drawer:focus { outline: none; }
+                    #browser-debug-drawer * { box-sizing: border-box; }
+                    .browser-debug-bar {
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                        min-height: 72px;
+                        padding: 0 24px;
+                        border-bottom: 1px solid rgba(255,255,255,0.08);
+                    }
+                    .browser-debug-title {
+                        font-size: 28px;
+                        font-weight: 400;
+                        color: #ffffff;
+                        margin-right: 8px;
+                        line-height: 1;
+                    }
+                    .browser-debug-tab, .browser-debug-action {
+                        appearance: none;
+                        border: 0;
+                        background: rgba(255,255,255,0.1);
+                        color: rgba(255,255,255,0.82);
+                        border-radius: 8px;
+                        min-height: 36px;
+                        padding: 0 14px;
+                        font: inherit;
+                    }
+                    .browser-debug-action {
+                        background: transparent;
+                        color: rgba(255,255,255,0.72);
+                    }
+                    .browser-debug-tab:hover, .browser-debug-action:hover {
+                        background: rgba(255,255,255,0.14);
+                        color: #ffffff;
+                    }
+                    .browser-debug-tab[aria-selected="true"] {
+                        color: #000000;
+                        background: #ffffff;
+                    }
+                    .browser-debug-spacer { flex: 1; }
+                    .browser-debug-body {
+                        min-height: 0;
+                        overflow: auto;
+                        overscroll-behavior: contain;
+                    }
+                    .browser-debug-body-network {
+                        min-height: 0;
+                        overflow: hidden;
+                    }
+                    .browser-debug-empty {
+                        color: rgba(255,255,255,0.6);
+                        padding: 18px;
+                    }
+                    .browser-debug-row {
+                        display: grid;
+                        grid-template-columns: 96px 1fr;
+                        gap: 16px;
+                        padding: 0 22px;
+                        min-height: 60px;
+                        align-items: center;
+                        border-bottom: 1px solid rgba(255,255,255,0.08);
+                        white-space: pre-wrap;
+                        overflow-wrap: anywhere;
+                    }
+                    .browser-debug-meta { color: rgba(255,255,255,0.6); }
+                    .browser-debug-log-error { color: #ff9b9b; }
+                    .browser-debug-log-warn { color: #ffd98a; }
+                    .browser-debug-log-info { color: #9fd0ff; }
+                    .browser-debug-request {
+                        grid-template-columns: 16px 64px 56px 76px minmax(0, 1fr);
+                        align-items: start;
+                    }
+                    .browser-debug-network-row {
+                        min-height: 72px;
+                        padding-top: 6px;
+                        padding-bottom: 6px;
+                    }
+                    .browser-debug-network-route {
+                        display: block;
+                        min-width: 0;
+                        line-height: 1.35;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .browser-debug-network-shell {
+                        display: grid;
+                        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                        height: 100%;
+                        min-height: 100%;
+                    }
+                    .browser-debug-network-list {
+                        min-width: 0;
+                        min-height: 0;
+                        overflow: auto;
+                        overscroll-behavior: contain;
+                        border-right: 1px solid rgba(255,255,255,0.1);
+                        padding: 6px 0;
+                    }
+                    .browser-debug-network-item {
+                        display: block;
+                        width: calc(100% - 12px);
+                        margin: 0 6px;
+                        border: 0;
+                        background: transparent;
+                        color: #ffffff;
+                        border-radius: 6px;
+                        font: inherit;
+                        text-align: left;
+                        cursor: default;
+                        overflow: hidden;
+                    }
+                    .browser-debug-network-item + .browser-debug-network-item {
+                        margin-top: 2px;
+                    }
+                    .browser-debug-network-item[aria-selected="true"] {
+                        background: transparent;
+                        color: #ffffff;
+                    }
+                    .browser-debug-method {
+                        font: inherit;
+                        font-weight: 400;
+                    }
+                    .browser-debug-selected-marker {
+                        color: #ffffff;
+                        font-size: 22px;
+                        padding-top: 4px;
+                        font-family: inherit;
+                        font-weight: 400;
+                        line-height: 1;
+                    }
+                    .browser-debug-network-item:hover {
+                        background: rgba(255,255,255,0.08);
+                    }
+                    .browser-debug-network-details {
+                        min-width: 0;
+                        min-height: 0;
+                        overflow: auto;
+                        overscroll-behavior: contain;
+                        padding: 10px 12px;
+                    }
+                    .browser-debug-network-title {
+                        margin: 0 0 10px;
+                        color: #ffffff;
+                        font-size: 16px;
+                        font-weight: 400;
+                        overflow-wrap: anywhere;
+                    }
+                    .browser-debug-status-ok { color: #97e6b1; }
+                    .browser-debug-status-bad { color: #ff9b9b; }
+                    .browser-debug-kv {
+                        display: grid;
+                        grid-template-columns: minmax(150px, 260px) 1fr;
+                        gap: 16px;
+                        padding: 16px 22px;
+                        border-bottom: 1px solid rgba(255,255,255,0.08);
+                        overflow-wrap: anywhere;
+                    }
+                    .browser-debug-kv strong {
+                        font-weight: 400;
+                        color: #ffffff;
+                    }
+                    .browser-debug-source {
+                        margin: 0;
+                        padding: 12px;
+                        min-height: 100%;
+                        color: rgba(255,255,255,0.82);
+                        background: transparent;
+                        font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+                        line-height: 1.5;
+                        tab-size: 2;
+                        white-space: pre-wrap;
+                        overflow-wrap: anywhere;
+                    }
+                    .browser-debug-source-shell {
+                        min-height: 100%;
+                    }
+                    .browser-debug-source-tree {
+                        min-width: 0;
+                        min-height: 100%;
+                        overflow: auto;
+                        padding: 8px 0;
+                        font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+                    }
+                    .browser-debug-node {
+                        display: flex;
+                        align-items: center;
+                        width: 100%;
+                        min-height: 30px;
+                        padding: 2px 8px;
+                        border: 0;
+                        background: transparent;
+                        color: rgba(255,255,255,0.82);
+                        font: inherit;
+                        text-align: left;
+                        white-space: nowrap;
+                    }
+                    .browser-debug-node:hover { background: rgba(255,255,255,0.08); }
+                    .browser-debug-disclosure {
+                        display: inline-block;
+                        width: 18px;
+                        color: rgba(255,255,255,0.6);
+                    }
+                    .browser-debug-token-tag { color: #8fc7ff; }
+                    .browser-debug-token-attr { color: #ffd98a; }
+                    .browser-debug-token-value { color: #b8e994; }
+                    .browser-debug-token-muted { color: #9aa4af; }
+                    .browser-debug-detail-title {
+                        margin: 0 0 10px;
+                        font-size: 16px;
+                        font-weight: 400;
+                        color: #ffffff;
+                    }
+                    .browser-debug-detail-code {
+                        margin: 0;
+                        padding: 10px;
+                        border-radius: 8px;
+                        background: rgba(255,255,255,0.1);
+                        font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+                        line-height: 1.5;
+                        white-space: pre-wrap;
+                        overflow-wrap: anywhere;
+                    }
+                    @media (max-width: 720px) {
+                        #browser-debug-drawer { width: 96vw; height: calc(100vh - 32px); }
+                        .browser-debug-bar { overflow-x: auto; }
+                        .browser-debug-row, .browser-debug-request, .browser-debug-kv { grid-template-columns: 1fr; gap: 4px; }
+                        .browser-debug-network-row { min-height: 96px; }
+                        .browser-debug-network-shell { grid-template-columns: 1fr; }
+                        .browser-debug-network-list { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.1); max-height: 50%; }
+                        .browser-debug-source-tree { max-height: none; }
+                    }
+                `;
+                document.head.appendChild(style);
+
+                root = document.createElement('section');
+                root.id = 'browser-debug-drawer';
+                root.setAttribute('role', 'dialog');
+                root.setAttribute('aria-label', 'Browser debug tools');
+                root.tabIndex = -1;
+                document.documentElement.appendChild(root);
+                return root;
+            }
+
+            const renderRows = (items, emptyText, rowRenderer) => {
+                if (!items.length) return `<div class="browser-debug-empty">${emptyText}</div>`;
+                return items.slice().reverse().map(rowRenderer).join('');
+            };
+
+            const escapeHTML = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+
+            const storageRows = () => {
+                const rows = [];
+                try {
+                    rows.push(['URL', location.href]);
+                    rows.push(['User agent', navigator.userAgent]);
+                    rows.push(['Viewport', `${innerWidth} x ${innerHeight}`]);
+                    rows.push(['Device pixel ratio', devicePixelRatio]);
+                    rows.push(['Local storage keys', localStorage.length]);
+                    rows.push(['Session storage keys', sessionStorage.length]);
+                    rows.push(['Cookies', document.cookie ? document.cookie.split(';').length : 0]);
+                    for (let index = 0; index < localStorage.length; index += 1) {
+                        const key = localStorage.key(index);
+                        rows.push([`localStorage.${key}`, localStorage.getItem(key)]);
+                    }
+                    for (let index = 0; index < sessionStorage.length; index += 1) {
+                        const key = sessionStorage.key(index);
+                        rows.push([`sessionStorage.${key}`, sessionStorage.getItem(key)]);
+                    }
+                } catch (error) {
+                    rows.push(['Storage error', safeString(error)]);
+                }
+                return rows.map(([key, value]) => `<div class="browser-debug-kv"><strong>${escapeHTML(key)}</strong><span>${escapeHTML(value)}</span></div>`).join('');
+            };
+
+            const objectRows = (object, emptyText = 'None captured.') => {
+                const entries = Object.entries(object || {});
+                if (!entries.length) return `<div class="browser-debug-empty">${emptyText}</div>`;
+                return entries.map(([key, value]) => (
+                    `<div class="browser-debug-kv"><strong>${escapeHTML(key)}</strong><span>${escapeHTML(value)}</span></div>`
+                )).join('');
+            };
+
+            const networkDetails = (entry) => {
+                if (!entry) return '<div class="browser-debug-empty">Select a request.</div>';
+                return `
+                    <h3 class="browser-debug-network-title">${escapeHTML(entry.method)} ${escapeHTML(entry.url)}</h3>
+                    <div class="browser-debug-kv"><strong>Status</strong><span class="${entry.ok ? 'browser-debug-status-ok' : 'browser-debug-status-bad'}">${escapeHTML(entry.status)} ${escapeHTML(entry.statusText || '')}</span></div>
+                    <div class="browser-debug-kv"><strong>Type</strong><span>${escapeHTML(entry.type || 'request')}</span></div>
+                    <div class="browser-debug-kv"><strong>Started</strong><span>${escapeHTML(entry.startedAt || '')}</span></div>
+                    <div class="browser-debug-kv"><strong>Duration</strong><span>${escapeHTML(entry.duration)} ms</span></div>
+                    ${entry.error ? `<div class="browser-debug-kv"><strong>Error</strong><span>${escapeHTML(entry.error)}</span></div>` : ''}
+                    <h3 class="browser-debug-network-title">Request Headers</h3>
+                    ${objectRows(entry.requestHeaders)}
+                    <h3 class="browser-debug-network-title">Request Body</h3>
+                    ${entry.requestBody ? `<pre class="browser-debug-detail-code">${escapeHTML(entry.requestBody)}</pre>` : '<div class="browser-debug-empty">None captured.</div>'}
+                    <h3 class="browser-debug-network-title">Response Headers</h3>
+                    ${objectRows(entry.responseHeaders)}
+                    <h3 class="browser-debug-network-title">Response Body</h3>
+                    ${entry.responseBody ? `<pre class="browser-debug-detail-code">${escapeHTML(entry.responseBody)}</pre>` : '<div class="browser-debug-empty">None captured yet.</div>'}
+                `;
+            };
+
+            const networkPanel = () => {
+                if (!state.requests.length) return '<div class="browser-debug-empty">No fetch or XHR requests captured yet.</div>';
+                if (!state.requests.some((entry) => entry.id === state.selectedRequestID)) {
+                    state.selectedRequestID = state.requests[state.requests.length - 1].id;
+                }
+                const selected = state.requests.find((entry) => entry.id === state.selectedRequestID);
+
+                return `
+                    <div class="browser-debug-network-shell">
+                        <div class="browser-debug-network-list">${networkRows()}</div>
+                        <div class="browser-debug-network-details">${networkDetails(selected)}</div>
+                    </div>
+                `;
+            };
+
+            const networkRows = () => state.requests.slice().reverse().map((entry) => `
+                <button class="browser-debug-network-item" data-request-id="${escapeHTML(entry.id)}" aria-selected="${entry.id === state.selectedRequestID}">
+                    <div class="browser-debug-row browser-debug-request browser-debug-network-row">
+                        <span class="browser-debug-selected-marker">${entry.id === state.selectedRequestID ? '*' : ''}</span>
+                        <strong class="browser-debug-method">${escapeHTML(entry.method)}</strong>
+                        <span class="${entry.ok ? 'browser-debug-status-ok' : 'browser-debug-status-bad'}">${escapeHTML(entry.status)}</span>
+                        <span class="browser-debug-meta">${escapeHTML(entry.duration)} ms</span>
+                        <span class="browser-debug-network-route">${escapeHTML(entry.url)}${entry.error ? `<br>${escapeHTML(entry.error)}` : ''}</span>
+                    </div>
+                </button>
+            `).join('');
+
+            const selectNetworkRequest = (requestID, resetDetailsScroll = true) => {
+                state.selectedRequestID = Number(requestID);
+                if (resetDetailsScroll) state.networkDetailsScrollTop = 0;
+                window.__browserDebugRenderNetwork ? window.__browserDebugRenderNetwork(state.selectedRequestID, resetDetailsScroll) : window.__browserDebugRender();
+                requestAnimationFrame(() => {
+                    const root = document.getElementById('browser-debug-drawer');
+                    const selectedButton = root && root.querySelector(`[data-request-id="${state.selectedRequestID}"]`);
+                    root && root.focus();
+                    selectedButton && selectedButton.scrollIntoView({ block: 'nearest' });
+                });
+            };
+
+            const moveNetworkSelection = (delta) => {
+                if (state.selectedTab !== 'network' || !state.requests.length) return false;
+                const visibleRequests = state.requests.slice().reverse();
+                let currentIndex = visibleRequests.findIndex((entry) => entry.id === state.selectedRequestID);
+                if (currentIndex === -1) currentIndex = 0;
+                const nextIndex = Math.max(0, Math.min(visibleRequests.length - 1, currentIndex + delta));
+                if (nextIndex === currentIndex) return true;
+                selectNetworkRequest(visibleRequests[nextIndex].id);
+                return true;
+            };
+
+            const bindNetworkRequestEvents = (root) => {
+                root.querySelectorAll('[data-request-id]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        selectNetworkRequest(button.dataset.requestId);
+                    });
+                });
+            };
+
+            const assignNodeIDs = () => {
+                const nodeByID = new Map();
+                const visit = (node, id) => {
+                    node.__browserDebugNodeID = id;
+                    nodeByID.set(id, node);
+                    Array.from(node.childNodes).forEach((child, index) => visit(child, `${id}.${index}`));
+                };
+                visit(document.documentElement, '0');
+                return nodeByID;
+            };
+
+            const nodeLabel = (node) => {
+                if (!node) return '';
+                if (node.nodeType === Node.TEXT_NODE) {
+                    const text = (node.textContent || '').replace(/\\s+/g, ' ').trim();
+                    return text ? `"${escapeHTML(text.slice(0, 100))}"` : '#text';
+                }
+                if (node.nodeType === Node.COMMENT_NODE) {
+                    return `&lt;!-- ${escapeHTML((node.textContent || '').trim().slice(0, 100))} --&gt;`;
+                }
+                if (node.nodeType !== Node.ELEMENT_NODE) return escapeHTML(node.nodeName.toLowerCase());
+
+                const attrs = Array.from(node.attributes).slice(0, 4).map((attr) => (
+                    ` <span class="browser-debug-token-attr">${escapeHTML(attr.name)}</span>=<span class="browser-debug-token-value">"${escapeHTML(attr.value)}"</span>`
+                )).join('');
+                const extra = node.attributes.length > 4 ? ' <span class="browser-debug-token-muted">...</span>' : '';
+                return `<span class="browser-debug-token-muted">&lt;</span><span class="browser-debug-token-tag">${escapeHTML(node.tagName.toLowerCase())}</span>${attrs}${extra}<span class="browser-debug-token-muted">&gt;</span>`;
+            };
+
+            const inspectableChildren = (node) => Array.from(node.childNodes).filter((child) => (
+                child.nodeType === Node.ELEMENT_NODE ||
+                child.nodeType === Node.COMMENT_NODE ||
+                (child.nodeType === Node.TEXT_NODE && (child.textContent || '').trim())
+            ));
+
+            const sourceTreeRows = (node, depth) => {
+                if (![Node.ELEMENT_NODE, Node.TEXT_NODE, Node.COMMENT_NODE].includes(node.nodeType)) return '';
+                if (node.nodeType === Node.TEXT_NODE && !(node.textContent || '').trim()) return '';
+
+                const id = node.__browserDebugNodeID;
+                const children = inspectableChildren(node);
+                const isExpanded = state.expandedNodeIDs.includes(id);
+                const hasChildren = children.length > 0;
+                let html = `
+                    <button class="browser-debug-node" data-node-id="${escapeHTML(id)}" style="padding-left: ${8 + depth * 14}px">
+                        <span class="browser-debug-disclosure">${hasChildren ? (isExpanded ? '&#9662;' : '&#9656;') : ''}</span>
+                        <span>${nodeLabel(node)}</span>
+                    </button>
+                `;
+                if (hasChildren && isExpanded) {
+                    html += children.map((child) => sourceTreeRows(child, depth + 1)).join('');
+                }
+                return html;
+            };
+
+            const sourcePanel = () => {
+                const nodeByID = assignNodeIDs();
+                if (!nodeByID.has(state.selectedNodeID)) state.selectedNodeID = '0';
+
+                if (state.sourceMode === 'raw') {
+                    const doctype = document.doctype
+                        ? `<!DOCTYPE ${document.doctype.name}${document.doctype.publicId ? ` PUBLIC "${document.doctype.publicId}"` : ''}${document.doctype.systemId ? ` "${document.doctype.systemId}"` : ''}>\\n`
+                        : '';
+                    return `<pre class="browser-debug-source">${escapeHTML(doctype + document.documentElement.outerHTML)}</pre>`;
+                }
+
+                return `
+                    <div class="browser-debug-source-shell">
+                        <div class="browser-debug-source-tree">${sourceTreeRows(document.documentElement, 0)}</div>
+                    </div>
+                `;
+            };
+
+            window.__browserDebugRenderNetwork = (changedRequestID = null, forceDetails = false) => {
+                const root = document.getElementById('browser-debug-drawer');
+                if (!root || root.hidden || state.selectedTab !== 'network') {
+                    window.__browserDebugRender && window.__browserDebugRender();
+                    return;
+                }
+
+                const tab = root.querySelector('[data-tab="network"]');
+                if (tab) tab.textContent = `Network (${state.requests.length})`;
+
+                const list = root.querySelector('.browser-debug-network-list');
+                const details = root.querySelector('.browser-debug-network-details');
+                if (!list || !details) {
+                    window.__browserDebugRender && window.__browserDebugRender();
+                    return;
+                }
+
+                if (!state.requests.length) {
+                    window.__browserDebugRender && window.__browserDebugRender();
+                    return;
+                }
+
+                if (!state.requests.some((entry) => entry.id === state.selectedRequestID)) {
+                    state.selectedRequestID = state.requests[state.requests.length - 1].id;
+                    forceDetails = true;
+                }
+
+                const previousListScrollTop = list.scrollTop;
+                const previousListScrollHeight = list.scrollHeight;
+                const wasListAtTop = previousListScrollTop <= 2;
+                const previousDetailsScrollTop = details.scrollTop;
+                const selectedBefore = details.dataset.requestId ? Number(details.dataset.requestId) : null;
+                const selected = state.requests.find((entry) => entry.id === state.selectedRequestID);
+
+                list.innerHTML = networkRows();
+                list.scrollTop = wasListAtTop ? 0 : previousListScrollTop + Math.max(0, list.scrollHeight - previousListScrollHeight);
+                state.networkListScrollTop = list.scrollTop;
+                bindNetworkRequestEvents(list);
+
+                if (forceDetails || selectedBefore !== state.selectedRequestID || changedRequestID === state.selectedRequestID) {
+                    details.innerHTML = networkDetails(selected);
+                    details.dataset.requestId = String(state.selectedRequestID);
+                    details.scrollTop = forceDetails ? state.networkDetailsScrollTop : previousDetailsScrollTop;
+                    state.networkDetailsScrollTop = details.scrollTop;
+                }
+            };
+
+            window.__browserDebugRender = () => {
+                const root = ensureDrawer();
+                const previousNetworkList = root.querySelector('.browser-debug-network-list');
+                const previousNetworkDetails = root.querySelector('.browser-debug-network-details');
+                const previousSourceBody = state.selectedTab === 'sources' ? root.querySelector('.browser-debug-body') : null;
+                const previousSourceTree = root.querySelector('.browser-debug-source-tree');
+                if (previousNetworkList) state.networkListScrollTop = previousNetworkList.scrollTop;
+                if (previousNetworkDetails) state.networkDetailsScrollTop = previousNetworkDetails.scrollTop;
+                if (previousSourceBody) state.sourceBodyScrollTop = previousSourceBody.scrollTop;
+                if (previousSourceTree) state.sourceTreeScrollTop = previousSourceTree.scrollTop;
+
+                const tabs = [
+                    ['console', `Console (${state.logs.length})`],
+                    ['network', `Network (${state.requests.length})`],
+                    ['sources', 'Sources'],
+                    ['storage', 'Storage'],
+                    ['environment', 'Environment']
+                ];
+
+                let body = '';
+                if (state.selectedTab === 'console') {
+                    body = renderRows(state.logs, 'No console messages captured yet.', (entry) => `
+                        <div class="browser-debug-row browser-debug-log-${escapeHTML(entry.level)}">
+                            <span class="browser-debug-meta">${escapeHTML(entry.time)} ${escapeHTML(entry.level)}</span>
+                            <span>${escapeHTML(entry.message)}</span>
+                        </div>
+                    `);
+                } else if (state.selectedTab === 'network') {
+                    body = networkPanel();
+                } else if (state.selectedTab === 'sources') {
+                    body = sourcePanel();
+                } else if (state.selectedTab === 'storage') {
+                    body = storageRows();
+                } else {
+                    body = [
+                        ['Location', location.href],
+                        ['Title', document.title || '(untitled)'],
+                        ['Ready state', document.readyState],
+                        ['Language', navigator.language],
+                        ['Online', navigator.onLine],
+                        ['Platform', navigator.platform],
+                        ['Screen', `${screen.width} x ${screen.height}`],
+                        ['Timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown']
+                    ].map(([key, value]) => `<div class="browser-debug-kv"><strong>${escapeHTML(key)}</strong><span>${escapeHTML(value)}</span></div>`).join('');
+                }
+
+                root.innerHTML = `
+                    <div class="browser-debug-bar">
+                        <span class="browser-debug-title">Debug</span>
+                        ${tabs.map(([id, label]) => `<button class="browser-debug-tab" data-tab="${id}" aria-selected="${state.selectedTab === id}">${escapeHTML(label)}</button>`).join('')}
+                        <span class="browser-debug-spacer"></span>
+                        ${state.selectedTab === 'sources' ? `<button class="browser-debug-action" data-action="source-mode">${state.sourceMode === 'tree' ? 'Raw' : 'Tree'}</button>` : ''}
+                        <button class="browser-debug-action" data-action="clear">${state.selectedTab === 'sources' ? 'Refresh' : 'Clear'}</button>
+                        <button class="browser-debug-action" data-action="close">Close</button>
+                    </div>
+                    <div class="browser-debug-body ${state.selectedTab === 'network' ? 'browser-debug-body-network' : ''}">${body}</div>
+                `;
+
+                root.querySelectorAll('[data-tab]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        state.selectedTab = button.dataset.tab;
+                        window.__browserDebugRender();
+                    });
+                });
+                root.onkeydown = (event) => {
+                    if (state.selectedTab !== 'network') return;
+                    if (event.key === 'j' || event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        moveNetworkSelection(1);
+                    } else if (event.key === 'k' || event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        moveNetworkSelection(-1);
+                    }
+                };
+                root.querySelector('[data-action="clear"]').addEventListener('click', () => {
+                    if (state.selectedTab === 'console') state.logs.length = 0;
+                    if (state.selectedTab === 'network') state.requests.length = 0;
+                    window.__browserDebugRender();
+                });
+                root.querySelector('[data-action="source-mode"]')?.addEventListener('click', () => {
+                    state.sourceMode = state.sourceMode === 'tree' ? 'raw' : 'tree';
+                    window.__browserDebugRender();
+                });
+                root.querySelectorAll('[data-node-id]').forEach((button) => {
+                    button.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        const sourceBody = root.querySelector('.browser-debug-body');
+                        const sourceTree = root.querySelector('.browser-debug-source-tree');
+                        if (sourceBody) state.sourceBodyScrollTop = sourceBody.scrollTop;
+                        if (sourceTree) state.sourceTreeScrollTop = sourceTree.scrollTop;
+                        const id = button.dataset.nodeId;
+                        if (state.expandedNodeIDs.includes(id)) {
+                            state.expandedNodeIDs = state.expandedNodeIDs.filter((item) => item !== id);
+                        } else {
+                            state.expandedNodeIDs.push(id);
+                        }
+                        window.__browserDebugRender();
+                    });
+                });
+                const networkList = root.querySelector('.browser-debug-network-list');
+                const networkDetails = root.querySelector('.browser-debug-network-details');
+                const sourceBody = state.selectedTab === 'sources' ? root.querySelector('.browser-debug-body') : null;
+                const sourceTree = root.querySelector('.browser-debug-source-tree');
+                bindNetworkRequestEvents(root);
+                if (networkList) {
+                    networkList.scrollTop = state.networkListScrollTop;
+                    requestAnimationFrame(() => {
+                        networkList.scrollTop = state.networkListScrollTop;
+                    });
+                    networkList.addEventListener('scroll', () => {
+                        state.networkListScrollTop = networkList.scrollTop;
+                    });
+                }
+                if (networkDetails) {
+                    networkDetails.dataset.requestId = String(state.selectedRequestID);
+                    networkDetails.scrollTop = state.networkDetailsScrollTop;
+                    requestAnimationFrame(() => {
+                        networkDetails.scrollTop = state.networkDetailsScrollTop;
+                    });
+                    networkDetails.addEventListener('scroll', () => {
+                        state.networkDetailsScrollTop = networkDetails.scrollTop;
+                    });
+                }
+                if (sourceTree) {
+                    sourceTree.scrollTop = state.sourceTreeScrollTop;
+                    requestAnimationFrame(() => {
+                        sourceTree.scrollTop = state.sourceTreeScrollTop;
+                    });
+                    sourceTree.addEventListener('scroll', () => {
+                        state.sourceTreeScrollTop = sourceTree.scrollTop;
+                    });
+                }
+                if (sourceBody) {
+                    sourceBody.scrollTop = state.sourceBodyScrollTop;
+                    requestAnimationFrame(() => {
+                        sourceBody.scrollTop = state.sourceBodyScrollTop;
+                    });
+                    sourceBody.addEventListener('scroll', () => {
+                        state.sourceBodyScrollTop = sourceBody.scrollTop;
+                    });
+                }
+                root.querySelector('[data-action="close"]').addEventListener('click', () => {
+                    state.visible = false;
+                    root.hidden = true;
+                });
+            };
+
+            const drawer = ensureDrawer();
+            state.visible = !state.visible;
+            drawer.hidden = !state.visible;
+            if (state.visible) {
+                window.__browserDebugRender();
+                requestAnimationFrame(() => drawer.focus());
+            }
         })();
         """)
     }
