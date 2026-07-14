@@ -14,6 +14,7 @@ struct OverlayShortcutTextField: UIViewRepresentable {
         case find
         case history
         case settings
+        case networkTools
         case nextOption
         case previousOption
         case completeOption
@@ -209,6 +210,7 @@ final class ShortcutAwareUITextField: UITextField {
             shortcuts[.find, default: BrowserShortcutStore.defaults[.find]!].makeCommand(action: #selector(handleFindShortcut(_:))),
             shortcuts[.history, default: BrowserShortcutStore.defaults[.history]!].makeCommand(action: #selector(handleHistoryShortcut(_:))),
             shortcuts[.settings, default: BrowserShortcutStore.defaults[.settings]!].makeCommand(action: #selector(handleSettingsShortcut(_:))),
+            shortcuts[.networkTools, default: BrowserShortcutStore.defaults[.networkTools]!].makeCommand(action: #selector(handleNetworkToolsShortcut(_:))),
             prioritizedKeyCommand(input: "j", modifiers: [.control], action: #selector(handleNextOptionShortcut(_:))),
             prioritizedKeyCommand(input: "k", modifiers: [.control], action: #selector(handlePreviousOptionShortcut(_:))),
             prioritizedKeyCommand(input: "\t", modifiers: [], action: #selector(handleCompleteOptionShortcut(_:))),
@@ -256,6 +258,10 @@ final class ShortcutAwareUITextField: UITextField {
 
     @objc private func handleSettingsShortcut(_ sender: UIKeyCommand) {
         shortcutHandler?(.settings)
+    }
+
+    @objc private func handleNetworkToolsShortcut(_ sender: UIKeyCommand) {
+        shortcutHandler?(.networkTools)
     }
 
     @objc private func handleNextOptionShortcut(_ sender: UIKeyCommand) {

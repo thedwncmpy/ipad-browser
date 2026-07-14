@@ -45,6 +45,7 @@ struct SpotlightView: View {
     var onSpotlightShortcut: (() -> Void)? = nil
     var onCommandPaletteShortcut: (() -> Void)? = nil
     var onSettingsShortcut: (() -> Void)? = nil
+    var onNetworkToolsShortcut: (() -> Void)? = nil
     var onNextSuggestionShortcut: (() -> Void)? = nil
     var onPreviousSuggestionShortcut: (() -> Void)? = nil
     var onCompleteSuggestionShortcut: (() -> Void)? = nil
@@ -150,6 +151,8 @@ struct SpotlightView: View {
             onHistoryShortcut?()
         case .settings:
             onSettingsShortcut?()
+        case .networkTools:
+            onNetworkToolsShortcut?()
         case .nextOption:
             onNextSuggestionShortcut?()
         case .previousOption:

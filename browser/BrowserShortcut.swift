@@ -30,6 +30,7 @@ enum BrowserShortcutAction: String, CaseIterable, Codable, Identifiable {
     case back
     case forward
     case reload
+    case networkTools
     case sidebarModePreviousWorkspace
     case sidebarModeNextWorkspace
     case sidebarModeNextTab
@@ -87,6 +88,8 @@ enum BrowserShortcutAction: String, CaseIterable, Codable, Identifiable {
             return "Forward"
         case .reload:
             return "Reload"
+        case .networkTools:
+            return "Network Tools"
         case .sidebarModePreviousWorkspace:
             return "Sidebar Mode Previous Workspace"
         case .sidebarModeNextWorkspace:
@@ -176,6 +179,7 @@ enum BrowserShortcutStore {
         .back: BrowserShortcut(input: "[", modifiers: [.command]),
         .forward: BrowserShortcut(input: "]", modifiers: [.command]),
         .reload: BrowserShortcut(input: "r", modifiers: [.command]),
+        .networkTools: BrowserShortcut(input: "i", modifiers: [.command, .alternate]),
         .sidebarModePreviousWorkspace: BrowserShortcut(input: "h", modifiers: []),
         .sidebarModeNextWorkspace: BrowserShortcut(input: "l", modifiers: []),
         .sidebarModeNextTab: BrowserShortcut(input: "j", modifiers: []),

@@ -31,6 +31,7 @@ final class BrowserWKWebView: WKWebView {
     var onGoBackShortcut: (() -> Void)?
     var onGoForwardShortcut: (() -> Void)?
     var onReloadShortcut: (() -> Void)?
+    var onToggleNetworkTools: (() -> Void)?
     var isSidebarNavigationEnabled = false
     var shortcuts = BrowserShortcutStore.defaults
 
@@ -59,6 +60,7 @@ final class BrowserWKWebView: WKWebView {
             backSelector: #selector(handleGoBack(_:)),
             forwardSelector: #selector(handleGoForward(_:)),
             reloadSelector: #selector(handleReload(_:)),
+            networkToolsSelector: #selector(handleNetworkToolsToggle(_:)),
             shortcuts: shortcuts
         )
 
@@ -175,6 +177,10 @@ final class BrowserWKWebView: WKWebView {
     @objc private func handleReload(_ sender: UIKeyCommand) {
         onReloadShortcut?()
     }
+
+    @objc private func handleNetworkToolsToggle(_ sender: UIKeyCommand) {
+        onToggleNetworkTools?()
+    }
 }
 
 struct BrowserFindStatus: Equatable {
@@ -213,6 +219,54 @@ final class BrowserNavigationController {
             for (const media of document.querySelectorAll('audio, video')) {
                 media.pause();
             }
+        })();
+        """)
+    }
+
+    func toggleErudaDeveloperTools() {
+        webView?.evaluateJavaScript("""
+        (() => {
+            function hideEntryButton() {
+                for (const node of Array.from(document.querySelectorAll('.eruda-entry-btn'))) {
+                    node.style.setProperty('display', 'none', 'important');
+                }
+            }
+
+            function showTools() {
+                if (!window.__browserErudaInitialized && window.eruda) {
+                    window.eruda.init({
+                        tool: ['console', 'elements', 'network', 'resources', 'sources', 'info']
+                    });
+                    window.__browserErudaInitialized = true;
+                }
+
+                if (window.eruda) {
+                    window.eruda.show();
+                    hideEntryButton();
+                    requestAnimationFrame(hideEntryButton);
+                    setTimeout(hideEntryButton, 100);
+                }
+            }
+
+            if (window.eruda && window.__browserErudaVisible) {
+                window.eruda.hide();
+                window.__browserErudaVisible = false;
+                return;
+            }
+
+            if (window.eruda) {
+                showTools();
+                window.__browserErudaVisible = true;
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+            script.onload = () => {
+                showTools();
+                window.__browserErudaVisible = true;
+            };
+            document.head.appendChild(script);
         })();
         """)
     }
@@ -455,6 +509,7 @@ struct BrowserWebView: UIViewRepresentable {
     let onToggleFind: () -> Void
     let onToggleHistory: () -> Void
     let onToggleSettings: () -> Void
+    let onToggleNetworkTools: () -> Void
     let onDismissOverlay: () -> Void
     let onGoBack: () -> Void
     let onGoForward: () -> Void
@@ -493,6 +548,7 @@ struct BrowserWebView: UIViewRepresentable {
             shouldLoadInitialURL = true
         }
 
+        configureInspection(for: webView)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.onPageTitleChange = onPageTitleChange
@@ -510,6 +566,7 @@ struct BrowserWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: BrowserWKWebView, context: Context) {
+        configureInspection(for: uiView)
         context.coordinator.onPageTitleChange = onPageTitleChange
         configureShortcuts(for: uiView)
         syncSidebarNavigationMode(in: uiView, context: context)
@@ -554,12 +611,19 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onToggleFind = onToggleFind
         webView.onToggleHistory = onToggleHistory
         webView.onToggleSettings = onToggleSettings
+        webView.onToggleNetworkTools = onToggleNetworkTools
         webView.onDismissOverlay = onDismissOverlay
         webView.onGoBackShortcut = onGoBack
         webView.onGoForwardShortcut = onGoForward
         webView.onReloadShortcut = onReload
         webView.isSidebarNavigationEnabled = isSidebarNavigationEnabled
         webView.shortcuts = shortcuts
+    }
+
+    private func configureInspection(for webView: BrowserWKWebView) {
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = true
+        }
     }
 
     private func syncSidebarNavigationMode(in webView: WKWebView, context: Context) {
@@ -769,6 +833,7 @@ extension BrowserWebView {
         onToggleFind: {},
         onToggleHistory: {},
         onToggleSettings: {},
+        onToggleNetworkTools: {},
         onDismissOverlay: {},
         onGoBack: {},
         onGoForward: {},

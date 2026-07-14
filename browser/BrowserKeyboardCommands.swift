@@ -30,6 +30,7 @@ enum BrowserKeyboardCommands {
         backSelector: Selector,
         forwardSelector: Selector,
         reloadSelector: Selector,
+        networkToolsSelector: Selector,
         shortcuts: [BrowserShortcutAction: BrowserShortcut]
     ) -> [UIKeyCommand] {
         let selectorByAction: [BrowserShortcutAction: Selector] = [
@@ -56,7 +57,8 @@ enum BrowserKeyboardCommands {
             .dismiss: dismissSelector,
             .back: backSelector,
             .forward: forwardSelector,
-            .reload: reloadSelector
+            .reload: reloadSelector,
+            .networkTools: networkToolsSelector
         ]
 
         let commands = BrowserShortcutAction.allCases.compactMap { action -> UIKeyCommand? in

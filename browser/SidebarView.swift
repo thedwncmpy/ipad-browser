@@ -57,6 +57,7 @@ struct SidebarView: View {
     let onFindShortcut: (() -> Void)?
     let onHistoryShortcut: (() -> Void)?
     let onSettingsShortcut: (() -> Void)?
+    let onNetworkToolsShortcut: (() -> Void)?
     let onNextItemShortcut: (() -> Void)?
     let onPreviousItemShortcut: (() -> Void)?
     let onDismiss: (() -> Void)?
@@ -213,6 +214,8 @@ struct SidebarView: View {
             onHistoryShortcut?()
         case .settings:
             onSettingsShortcut?()
+        case .networkTools:
+            onNetworkToolsShortcut?()
         case .nextOption:
             onNextItemShortcut?()
         case .previousOption:
@@ -252,6 +255,7 @@ struct SidebarView: View {
         onFindShortcut: nil,
         onHistoryShortcut: nil,
         onSettingsShortcut: nil,
+        onNetworkToolsShortcut: nil,
         onNextItemShortcut: nil,
         onPreviousItemShortcut: nil,
         onDismiss: nil,

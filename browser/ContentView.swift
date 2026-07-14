@@ -55,6 +55,7 @@ struct ContentView: View {
         case commandPalette
         case find
         case settings
+        case networkTools
         case dismiss
     }
 
@@ -306,9 +307,10 @@ struct ContentView: View {
                         onToggleSpotlight: toggleSpotlight,
                         onToggleCommandPalette: toggleCommandPalette,
                         onToggleFind: toggleFind,
-                        onToggleHistory: toggleHistory,
-                        onToggleSettings: toggleSettings,
-                        onDismissOverlay: dismissSpotlight,
+                onToggleHistory: toggleHistory,
+                onToggleSettings: toggleSettings,
+                onToggleNetworkTools: toggleNetworkTools,
+                onDismissOverlay: dismissSpotlight,
                         onGoBack: goBack,
                         onGoForward: goForward,
                         onReload: reload,
@@ -348,6 +350,7 @@ struct ContentView: View {
                     onToggleFind: toggleFind,
                     onToggleHistory: toggleHistory,
                     onToggleSettings: toggleSettings,
+                    onToggleNetworkTools: toggleNetworkTools,
                     onDismissOverlay: dismissSpotlight,
                     onGoBack: goBack,
                     onGoForward: goForward,
@@ -382,6 +385,7 @@ struct ContentView: View {
                 onFindShortcut: toggleFind,
                 onHistoryShortcut: toggleHistory,
                 onSettingsShortcut: toggleSettings,
+                onNetworkToolsShortcut: toggleNetworkTools,
                 onNextItemShortcut: nil,
                 onPreviousItemShortcut: nil,
                 onDismiss: dismissSpotlight,
@@ -418,6 +422,7 @@ struct ContentView: View {
                 onFindShortcut: toggleFind,
                 onHistoryShortcut: toggleHistory,
                 onSettingsShortcut: toggleSettings,
+                onNetworkToolsShortcut: toggleNetworkTools,
                 onNextItemShortcut: { moveHistorySelection(by: 1) },
                 onPreviousItemShortcut: { moveHistorySelection(by: -1) },
                 onDismiss: dismissSpotlight,
@@ -442,6 +447,7 @@ struct ContentView: View {
                 onHistoryShortcut: toggleHistory,
                 onSpotlightShortcut: toggleSpotlight,
                 onSettingsShortcut: toggleSettings,
+                onNetworkToolsShortcut: toggleNetworkTools,
                 shortcuts: shortcuts,
                 onSubmit: submitSpotlight,
                 onDismiss: {
@@ -472,6 +478,7 @@ struct ContentView: View {
                 onSpotlightShortcut: toggleSpotlight,
                 onCommandPaletteShortcut: toggleCommandPalette,
                 onSettingsShortcut: toggleSettings,
+                onNetworkToolsShortcut: toggleNetworkTools,
                 onNextSuggestionShortcut: selectNextCommandPaletteSuggestion,
                 onPreviousSuggestionShortcut: selectPreviousCommandPaletteSuggestion,
                 onCompleteSuggestionShortcut: completeSelectedCommandPaletteSuggestion,
@@ -498,6 +505,7 @@ struct ContentView: View {
             onHistoryShortcut: toggleHistory,
             onSpotlightShortcut: toggleSpotlight,
             onSettingsShortcut: toggleSettings,
+            onNetworkToolsShortcut: toggleNetworkTools,
             shortcuts: shortcuts,
             onSubmit: {
                 activeTab?.navigationController.findNext { status in
@@ -552,6 +560,7 @@ struct ContentView: View {
                 onToggleFind: toggleFind,
                 onToggleHistory: toggleHistory,
                 onToggleSettings: toggleSettings,
+                onToggleNetworkTools: toggleNetworkTools,
                 onSubmitSelection: submitHistorySearch,
                 onFocusFilter: focusHistoryFilter,
                 onDismissSpotlight: dismissSpotlight,
@@ -1838,6 +1847,12 @@ struct ContentView: View {
         if shouldClearFind {
             clearFindState()
         }
+    }
+
+    private func toggleNetworkTools() {
+        guard canHandleShortcut(.networkTools) else { return }
+
+        activeTab?.navigationController.toggleErudaDeveloperTools()
     }
 
     private func dismissSpotlight() {

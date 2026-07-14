@@ -28,6 +28,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onToggleFind: () -> Void
     let onToggleHistory: () -> Void
     let onToggleSettings: () -> Void
+    let onToggleNetworkTools: () -> Void
     let onSubmitSelection: () -> Void
     let onFocusFilter: () -> Void
     let onDismissSpotlight: () -> Void
@@ -67,6 +68,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onToggleFind = onToggleFind
         controller.onToggleHistory = onToggleHistory
         controller.onToggleSettings = onToggleSettings
+        controller.onToggleNetworkTools = onToggleNetworkTools
         controller.onSubmitSelection = onSubmitSelection
         controller.onFocusFilter = onFocusFilter
         controller.onDismissSpotlight = onDismissSpotlight
@@ -102,6 +104,7 @@ final class KeyCaptureViewController: UIViewController {
     var onToggleFind: (() -> Void)?
     var onToggleHistory: (() -> Void)?
     var onToggleSettings: (() -> Void)?
+    var onToggleNetworkTools: (() -> Void)?
     var onSubmitSelection: (() -> Void)?
     var onFocusFilter: (() -> Void)?
     var onDismissSpotlight: (() -> Void)?
@@ -138,6 +141,7 @@ final class KeyCaptureViewController: UIViewController {
             backSelector: #selector(goBack(_:)),
             forwardSelector: #selector(goForward(_:)),
             reloadSelector: #selector(reloadPage(_:)),
+            networkToolsSelector: #selector(toggleNetworkTools(_:)),
             shortcuts: shortcuts
         ) + [
             shortcuts[.sidebarModeNextTab, default: BrowserShortcutStore.defaults[.sidebarModeNextTab]!].makeCommand(action: #selector(selectNextTab(_:))),
@@ -244,6 +248,10 @@ final class KeyCaptureViewController: UIViewController {
 
     @objc private func toggleSettings(_ sender: UIKeyCommand) {
         onToggleSettings?()
+    }
+
+    @objc private func toggleNetworkTools(_ sender: UIKeyCommand) {
+        onToggleNetworkTools?()
     }
 
     @objc private func submitSelection(_ sender: UIKeyCommand) {
