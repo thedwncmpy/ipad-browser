@@ -167,6 +167,7 @@ struct ContentView: View {
     @State private var historyFocusRequestID = 0
     @State private var browserFocusRequestID = 0
     @State private var captureFocusRequestID = 0
+    @State private var isNetworkToolsVisible = false
     @State private var keyboardFocusTarget: KeyboardFocusTarget = .browser
     @State private var favorites: [BrowserFavorite] = []
     @State private var shortcuts: [BrowserShortcutAction: BrowserShortcut] = BrowserShortcutStore.load()
@@ -442,12 +443,15 @@ struct ContentView: View {
                 pageURL: activeTab.currentPageURL,
                 showsFavicon: true,
                 focusRequestID: spotlightFocusRequestID == 0 ? nil : spotlightFocusRequestID,
+                autocompleteText: spotlightAutocompleteText,
                 onSidebarShortcut: toggleSidebar,
                 onFindShortcut: toggleFind,
                 onHistoryShortcut: toggleHistory,
                 onSpotlightShortcut: toggleSpotlight,
+                onCommandPaletteShortcut: toggleCommandPalette,
                 onSettingsShortcut: toggleSettings,
                 onNetworkToolsShortcut: toggleNetworkTools,
+                onCompleteSuggestionShortcut: completeSpotlightFavoriteAlias,
                 shortcuts: shortcuts,
                 onSubmit: submitSpotlight,
                 onDismiss: {
@@ -947,6 +951,12 @@ struct ContentView: View {
         guard let activeTab else { return }
         navigate(rawInput: spotlightText, in: activeTab)
         activeOverlay = .none
+    }
+
+    private var spotlightAutocompleteText: String? {
+        let query = spotlightText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let favorite = bestFavoriteAliasCompletion(for: query) else { return nil }
+        return autocompleteSuffix(for: query, completion: favorite.alias)
     }
 
     private func submitHistorySearch() {
@@ -1547,6 +1557,14 @@ struct ContentView: View {
         return favorites.first(where: { $0.alias == alias })
     }
 
+    private func bestFavoriteAliasCompletion(for rawAliasPrefix: String) -> BrowserFavorite? {
+        let aliasPrefix = normalizedAlias(rawAliasPrefix)
+        guard !aliasPrefix.isEmpty else { return nil }
+        return favorites.first { favorite in
+            favorite.alias.lowercased().hasPrefix(aliasPrefix)
+        }
+    }
+
     private func removeFavorite(alias rawAlias: String) -> Bool {
         let alias = normalizedAlias(rawAlias)
         guard !alias.isEmpty else { return false }
@@ -1607,6 +1625,7 @@ struct ContentView: View {
                 sidebarURLFocusRequestID = 0
                 activeOverlay = .none
             } else {
+                closeNetworkTools()
                 activeOverlay = .sidebar
                 requestKeyboardFocus(.capture)
             }
@@ -1626,6 +1645,7 @@ struct ContentView: View {
                 selectedHistoryItemID = nil
                 activeOverlay = .none
             } else {
+                closeNetworkTools()
                 historySearchText = ""
                 selectedHistoryItemID = historySidebarItems.first?.id
                 if activeOverlay == .sidebar {
@@ -1646,10 +1666,6 @@ struct ContentView: View {
 
     private func toggleSpotlight() {
         guard canHandleShortcut(.spotlight) else { return }
-        if activeOverlay == .sidebar {
-            requestKeyboardFocus(.sidebarURL)
-            return
-        }
         guard let activeTab else { return }
 
         let shouldClearFind = activeOverlay == .find || !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
@@ -1660,6 +1676,7 @@ struct ContentView: View {
                 spotlightFocusRequestID = 0
                 activeOverlay = .none
             } else {
+                closeNetworkTools()
                 activeOverlay = .spotlight
                 requestKeyboardFocus(.spotlight)
             }
@@ -1668,6 +1685,13 @@ struct ContentView: View {
         if shouldClearFind {
             clearFindState()
         }
+    }
+
+    private func completeSpotlightFavoriteAlias() {
+        let query = spotlightText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let favorite = bestFavoriteAliasCompletion(for: query) else { return }
+        spotlightText = favorite.alias
+        requestKeyboardFocus(.spotlight)
     }
 
     private func toggleCommandPalette() {
@@ -1681,6 +1705,7 @@ struct ContentView: View {
         let previousOverlay = activeOverlay
 
         withAnimation(.easeInOut(duration: 0.1)) {
+            closeNetworkTools()
             if previousOverlay == .sidebar {
                 sidebarURLFocusRequestID = 0
             }
@@ -1816,6 +1841,7 @@ struct ContentView: View {
         guard canHandleShortcut(.find) else { return }
 
         withAnimation(.easeInOut(duration: 0.1)) {
+            closeNetworkTools()
             activeOverlay = .find
             requestKeyboardFocus(.find)
         }
@@ -1834,6 +1860,7 @@ struct ContentView: View {
             if activeOverlay == .settings {
                 activeOverlay = .none
             } else {
+                closeNetworkTools()
                 if activeOverlay == .sidebar {
                     sidebarURLFocusRequestID = 0
                 }
@@ -1852,7 +1879,45 @@ struct ContentView: View {
     private func toggleNetworkTools() {
         guard canHandleShortcut(.networkTools) else { return }
 
+        if isNetworkToolsVisible {
+            closeNetworkTools()
+            return
+        }
+
+        closeActiveOverlayForExclusiveSurface()
         activeTab?.navigationController.toggleErudaDeveloperTools()
+        isNetworkToolsVisible = true
+    }
+
+    private func closeNetworkTools() {
+        guard isNetworkToolsVisible else { return }
+        activeTab?.navigationController.hideErudaDeveloperTools()
+        isNetworkToolsVisible = false
+    }
+
+    private func closeActiveOverlayForExclusiveSurface() {
+        switch activeOverlay {
+        case .none:
+            break
+        case .commandPalette:
+            closeCommandPalette(restoreSelection: true)
+        case .sidebar:
+            sidebarURLFocusRequestID = 0
+            activeOverlay = .none
+        case .history:
+            historyFocusRequestID = 0
+            selectedHistoryItemID = nil
+            activeOverlay = .none
+        case .spotlight:
+            spotlightFocusRequestID = 0
+            activeOverlay = .none
+        case .find:
+            findFocusRequestID = 0
+            activeOverlay = .none
+            clearFindState()
+        case .settings:
+            activeOverlay = .none
+        }
     }
 
     private func dismissSpotlight() {
@@ -1912,6 +1977,10 @@ struct ContentView: View {
 
     private func destinationURL(for rawInput: String) -> URL? {
         guard !rawInput.isEmpty else { return nil }
+
+        if let favorite = favorite(forAlias: rawInput), let favoriteURL = URL(string: favorite.urlString) {
+            return favoriteURL
+        }
 
         if let explicitURL = URL(string: rawInput), explicitURL.scheme != nil {
             return explicitURL

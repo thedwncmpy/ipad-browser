@@ -1027,12 +1027,28 @@ final class BrowserNavigationController {
                         window.__browserDebugRender();
                     });
                 });
+                const moveDebugTab = (delta) => {
+                    const tabIDs = tabs.map(([id]) => id);
+                    const currentIndex = Math.max(0, tabIDs.indexOf(state.selectedTab));
+                    const nextIndex = (currentIndex + delta + tabIDs.length) % tabIDs.length;
+                    state.selectedTab = tabIDs[nextIndex];
+                    window.__browserDebugRender();
+                    requestAnimationFrame(() => {
+                        const root = document.getElementById('browser-debug-drawer');
+                        root && root.focus();
+                    });
+                };
                 root.onkeydown = (event) => {
-                    if (state.selectedTab !== 'network') return;
-                    if (event.key === 'j' || event.key === 'ArrowDown') {
+                    if (event.key === 'h' || event.key === 'ArrowLeft') {
+                        event.preventDefault();
+                        moveDebugTab(-1);
+                    } else if (event.key === 'l' || event.key === 'ArrowRight') {
+                        event.preventDefault();
+                        moveDebugTab(1);
+                    } else if (state.selectedTab === 'network' && (event.key === 'j' || event.key === 'ArrowDown')) {
                         event.preventDefault();
                         moveNetworkSelection(1);
-                    } else if (event.key === 'k' || event.key === 'ArrowUp') {
+                    } else if (state.selectedTab === 'network' && (event.key === 'k' || event.key === 'ArrowUp')) {
                         event.preventDefault();
                         moveNetworkSelection(-1);
                     }
@@ -1117,6 +1133,17 @@ final class BrowserNavigationController {
                 window.__browserDebugRender();
                 requestAnimationFrame(() => drawer.focus());
             }
+        })();
+        """)
+    }
+
+    func hideErudaDeveloperTools() {
+        webView?.evaluateJavaScript("""
+        (() => {
+            const state = window.__browserDebugState;
+            const drawer = document.getElementById('browser-debug-drawer');
+            if (state) state.visible = false;
+            if (drawer) drawer.hidden = true;
         })();
         """)
     }

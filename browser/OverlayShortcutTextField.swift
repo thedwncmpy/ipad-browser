@@ -230,6 +230,28 @@ final class ShortcutAwareUITextField: UITextField {
         return commands
     }
 
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if presses.contains(where: { press in
+            guard let key = press.key else { return false }
+            return key.charactersIgnoringModifiers == " " &&
+                key.modifierFlags.contains(.alternate)
+        }) {
+            shortcutHandler?(.commandPalette)
+            return
+        }
+
+        super.pressesBegan(presses, with: event)
+    }
+
+    override func insertText(_ text: String) {
+        if text == "\u{00a0}" {
+            shortcutHandler?(.commandPalette)
+            return
+        }
+
+        super.insertText(text)
+    }
+
     private func prioritizedKeyCommand(input: String, modifiers: UIKeyModifierFlags, action: Selector) -> UIKeyCommand {
         let command = UIKeyCommand(input: input, modifierFlags: modifiers, action: action)
         command.wantsPriorityOverSystemBehavior = true
