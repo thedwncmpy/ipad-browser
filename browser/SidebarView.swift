@@ -43,13 +43,22 @@ struct SidebarView: View {
     let workspaceCount: Int
     let selectedWorkspaceIndex: Int
     let urlFieldFocusRequestID: Int?
+    var placeholder = "https://"
+    var showsCurrentPageFavicon = true
+    var showsWorkspaceIndicator = true
+    var showsCloseButtons = true
+    var usesBareNavigationShortcuts = false
     let onSelectTab: (UUID) -> Void
+    let onHoverTab: ((UUID) -> Void)?
     let onCloseTab: (UUID) -> Void
     let onSidebarShortcut: (() -> Void)?
     let onSpotlightShortcut: (() -> Void)?
     let onCommandPaletteShortcut: (() -> Void)?
     let onFindShortcut: (() -> Void)?
+    let onHistoryShortcut: (() -> Void)?
     let onSettingsShortcut: (() -> Void)?
+    let onNextItemShortcut: (() -> Void)?
+    let onPreviousItemShortcut: (() -> Void)?
     let onDismiss: (() -> Void)?
     let onSubmit: () -> Void
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
@@ -60,7 +69,9 @@ struct SidebarView: View {
                 urlField
                 tabList
                 Spacer(minLength: 0)
-                workspaceIndicator
+                if showsWorkspaceIndicator {
+                    workspaceIndicator
+                }
             }
             .padding(Style.contentPadding)
             .frame(
@@ -82,11 +93,13 @@ struct SidebarView: View {
 
     private var urlField: some View {
         HStack(spacing: 12) {
-            FaviconView(pageURL: currentPageURL, typedText: urlText)
+            if showsCurrentPageFavicon {
+                FaviconView(pageURL: currentPageURL, typedText: urlText)
+            }
 
             OverlayShortcutTextField(
                 text: $urlText,
-                placeholder: "https://",
+                placeholder: placeholder,
                 fontName: Style.fontName,
                 fontSize: Style.valueFontSize,
                 textColor: .white,
@@ -94,7 +107,8 @@ struct SidebarView: View {
                 onSubmit: onSubmit,
                 onTextChange: nil,
                 onShortcut: handleShortcut,
-                shortcuts: shortcuts
+                shortcuts: shortcuts,
+                usesBareNavigationShortcuts: usesBareNavigationShortcuts
             )
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 20)
@@ -111,43 +125,59 @@ struct SidebarView: View {
     }
 
     private var tabList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(tabs) { tab in
-                    HStack(alignment: .top, spacing: 12) {
-                        Button {
-                            onSelectTab(tab.id)
-                        } label: {
-                            HStack(alignment: .center, spacing: 12) {
-                                FaviconView(pageURL: tab.currentPageURL, typedText: tab.currentURLString)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(tabs) { tab in
+                        HStack(alignment: .top, spacing: 12) {
+                            Button {
+                                onSelectTab(tab.id)
+                            } label: {
+                                HStack(alignment: .center, spacing: 12) {
+                                    FaviconView(pageURL: tab.currentPageURL, typedText: tab.currentURLString)
 
-                                Text(tab.title)
-                                    .font(.custom(Style.fontName, size: Style.titleFontSize))
-                                    .foregroundStyle(Style.titleColor)
-                                    .lineLimit(1)
+                                    Text(tab.title)
+                                        .font(.custom(Style.fontName, size: Style.titleFontSize))
+                                        .foregroundStyle(Style.titleColor)
+                                        .lineLimit(1)
 
-                                Spacer(minLength: 0)
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Button {
-                            onCloseTab(tab.id)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Style.secondaryColor)
-                                .frame(width: 18, height: 18)
+                            if showsCloseButtons {
+                                Button {
+                                    onCloseTab(tab.id)
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(Style.secondaryColor)
+                                        .frame(width: 18, height: 18)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(backgroundColor(for: tab.id))
+                        .clipShape(RoundedRectangle(cornerRadius: Style.rowCornerRadius, style: .continuous))
+                        .id(tab.id)
+                        .onHover { isHovered in
+                            if isHovered {
+                                onHoverTab?(tab.id)
+                            }
+                        }
                     }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(backgroundColor(for: tab.id))
-                    .clipShape(RoundedRectangle(cornerRadius: Style.rowCornerRadius, style: .continuous))
+                }
+            }
+            .onChange(of: selectedTabID) { _, selectedTabID in
+                guard let selectedTabID else { return }
+                withAnimation(.easeInOut(duration: 0.12)) {
+                    proxy.scrollTo(selectedTabID, anchor: .center)
                 }
             }
         }
@@ -179,14 +209,18 @@ struct SidebarView: View {
             onCommandPaletteShortcut?()
         case .find:
             onFindShortcut?()
+        case .history:
+            onHistoryShortcut?()
         case .settings:
             onSettingsShortcut?()
         case .nextOption:
-            break
+            onNextItemShortcut?()
         case .previousOption:
-            break
+            onPreviousItemShortcut?()
         case .completeOption:
             break
+        case .submitOption:
+            onSubmit()
         case .dismiss:
             onDismiss?()
         }
@@ -210,12 +244,16 @@ struct SidebarView: View {
         selectedWorkspaceIndex: 1,
         urlFieldFocusRequestID: nil,
         onSelectTab: { _ in },
+        onHoverTab: nil,
         onCloseTab: { _ in },
         onSidebarShortcut: nil,
         onSpotlightShortcut: nil,
         onCommandPaletteShortcut: nil,
         onFindShortcut: nil,
+        onHistoryShortcut: nil,
         onSettingsShortcut: nil,
+        onNextItemShortcut: nil,
+        onPreviousItemShortcut: nil,
         onDismiss: nil,
         onSubmit: {},
         shortcuts: BrowserShortcutStore.defaults

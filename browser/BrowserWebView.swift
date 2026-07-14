@@ -12,6 +12,7 @@ final class BrowserWKWebView: WKWebView {
     var onNewTab: (() -> Void)?
     var onCloseWorkspace: (() -> Void)?
     var onCloseTab: (() -> Void)?
+    var onReopenClosedTab: (() -> Void)?
     var onNextWorkspace: (() -> Void)?
     var onPreviousWorkspace: (() -> Void)?
     var onNextTab: (() -> Void)?
@@ -24,6 +25,7 @@ final class BrowserWKWebView: WKWebView {
     var onToggleSpotlight: (() -> Void)?
     var onToggleCommandPalette: (() -> Void)?
     var onToggleFind: (() -> Void)?
+    var onToggleHistory: (() -> Void)?
     var onToggleSettings: (() -> Void)?
     var onDismissOverlay: (() -> Void)?
     var onGoBackShortcut: (() -> Void)?
@@ -38,6 +40,7 @@ final class BrowserWKWebView: WKWebView {
             newTabSelector: #selector(handleNewTab(_:)),
             closeWorkspaceSelector: #selector(handleCloseWorkspace(_:)),
             closeTabSelector: #selector(handleCloseTab(_:)),
+            reopenClosedTabSelector: #selector(handleReopenClosedTab(_:)),
             nextWorkspaceSelector: #selector(handleNextWorkspace(_:)),
             previousWorkspaceSelector: #selector(handlePreviousWorkspace(_:)),
             nextTabSelector: #selector(handleNextTab(_:)),
@@ -50,6 +53,7 @@ final class BrowserWKWebView: WKWebView {
             spotlightSelector: #selector(handleSpotlightToggle(_:)),
             commandPaletteSelector: #selector(handleCommandPaletteToggle(_:)),
             findSelector: #selector(handleFindToggle(_:)),
+            historySelector: #selector(handleHistoryToggle(_:)),
             settingsSelector: #selector(handleSettingsToggle(_:)),
             dismissSelector: #selector(handleDismiss(_:)),
             backSelector: #selector(handleGoBack(_:)),
@@ -90,6 +94,10 @@ final class BrowserWKWebView: WKWebView {
 
     @objc private func handleCloseTab(_ sender: UIKeyCommand) {
         onCloseTab?()
+    }
+
+    @objc private func handleReopenClosedTab(_ sender: UIKeyCommand) {
+        onReopenClosedTab?()
     }
 
     @objc private func handleCloseWorkspace(_ sender: UIKeyCommand) {
@@ -142,6 +150,10 @@ final class BrowserWKWebView: WKWebView {
 
     @objc private func handleFindToggle(_ sender: UIKeyCommand) {
         onToggleFind?()
+    }
+
+    @objc private func handleHistoryToggle(_ sender: UIKeyCommand) {
+        onToggleHistory?()
     }
 
     @objc private func handleSettingsToggle(_ sender: UIKeyCommand) {
@@ -410,6 +422,7 @@ final class BrowserNavigationController {
 struct BrowserWebView: UIViewRepresentable {
     @Binding var url: URL
     @Binding var currentURLString: String
+    @Binding var pageTitle: String
     let navigationController: BrowserNavigationController
     let focusRequestID: Int?
     let isSidebarNavigationEnabled: Bool
@@ -417,6 +430,7 @@ struct BrowserWebView: UIViewRepresentable {
     let onNewTab: () -> Void
     let onCloseWorkspace: () -> Void
     let onCloseTab: () -> Void
+    let onReopenClosedTab: () -> Void
     let onNextWorkspace: () -> Void
     let onPreviousWorkspace: () -> Void
     let onNextTab: () -> Void
@@ -429,11 +443,13 @@ struct BrowserWebView: UIViewRepresentable {
     let onToggleSpotlight: () -> Void
     let onToggleCommandPalette: () -> Void
     let onToggleFind: () -> Void
+    let onToggleHistory: () -> Void
     let onToggleSettings: () -> Void
     let onDismissOverlay: () -> Void
     let onGoBack: () -> Void
     let onGoForward: () -> Void
     let onReload: () -> Void
+    let onPageTitleChange: () -> Void
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
 
     private static func makeWebViewConfiguration() -> WKWebViewConfiguration {
@@ -469,6 +485,7 @@ struct BrowserWebView: UIViewRepresentable {
 
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
+        context.coordinator.onPageTitleChange = onPageTitleChange
         context.coordinator.attach(to: webView)
         context.coordinator.lastRequestedURL = url
         navigationController.attach(webView: webView)
@@ -483,6 +500,7 @@ struct BrowserWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: BrowserWKWebView, context: Context) {
+        context.coordinator.onPageTitleChange = onPageTitleChange
         configureShortcuts(for: uiView)
         syncSidebarNavigationMode(in: uiView, context: context)
 
@@ -503,7 +521,7 @@ struct BrowserWebView: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(url: $url, currentURLString: $currentURLString)
+        Coordinator(url: $url, currentURLString: $currentURLString, pageTitle: $pageTitle)
     }
 
     private func configureShortcuts(for webView: BrowserWKWebView) {
@@ -511,6 +529,7 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onNewTab = onNewTab
         webView.onCloseWorkspace = onCloseWorkspace
         webView.onCloseTab = onCloseTab
+        webView.onReopenClosedTab = onReopenClosedTab
         webView.onNextWorkspace = onNextWorkspace
         webView.onPreviousWorkspace = onPreviousWorkspace
         webView.onNextTab = onNextTab
@@ -523,6 +542,7 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onToggleSpotlight = onToggleSpotlight
         webView.onToggleCommandPalette = onToggleCommandPalette
         webView.onToggleFind = onToggleFind
+        webView.onToggleHistory = onToggleHistory
         webView.onToggleSettings = onToggleSettings
         webView.onDismissOverlay = onDismissOverlay
         webView.onGoBackShortcut = onGoBack
@@ -564,21 +584,29 @@ extension BrowserWebView {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         @Binding private var url: URL
         @Binding private var currentURLString: String
+        @Binding private var pageTitle: String
         var lastRequestedURL: URL?
         var lastAppliedFocusRequestID: Int?
         var lastAppliedSidebarNavigationEnabled: Bool?
         var isSidebarNavigationEnabled = false
+        var onPageTitleChange: (() -> Void)?
         private var urlObservation: NSKeyValueObservation?
+        private var titleObservation: NSKeyValueObservation?
 
-        init(url: Binding<URL>, currentURLString: Binding<String>) {
+        init(url: Binding<URL>, currentURLString: Binding<String>, pageTitle: Binding<String>) {
             _url = url
             _currentURLString = currentURLString
+            _pageTitle = pageTitle
         }
 
         func attach(to webView: WKWebView) {
             urlObservation = webView.observe(\.url, options: [.initial, .new]) { [weak self] webView, _ in
                 guard let self else { return }
                 self.syncObservedURL(from: webView.url)
+            }
+            titleObservation = webView.observe(\.title, options: [.initial, .new]) { [weak self] webView, _ in
+                guard let self else { return }
+                self.syncObservedTitle(from: webView.title)
             }
         }
 
@@ -694,6 +722,13 @@ extension BrowserWebView {
             currentURLString = observedURL.absoluteString
             lastRequestedURL = observedURL
         }
+
+        private func syncObservedTitle(from observedTitle: String?) {
+            let title = observedTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard pageTitle != title else { return }
+            pageTitle = title
+            onPageTitleChange?()
+        }
     }
 }
 
@@ -701,6 +736,7 @@ extension BrowserWebView {
     BrowserWebView(
         url: .constant(URL(string: "https://www.reddit.com")!),
         currentURLString: .constant("https://www.reddit.com"),
+        pageTitle: .constant("Reddit"),
         navigationController: BrowserNavigationController(),
         focusRequestID: nil,
         isSidebarNavigationEnabled: false,
@@ -708,6 +744,7 @@ extension BrowserWebView {
         onNewTab: {},
         onCloseWorkspace: {},
         onCloseTab: {},
+        onReopenClosedTab: {},
         onNextWorkspace: {},
         onPreviousWorkspace: {},
         onNextTab: {},
@@ -720,11 +757,13 @@ extension BrowserWebView {
         onToggleSpotlight: {},
         onToggleCommandPalette: {},
         onToggleFind: {},
+        onToggleHistory: {},
         onToggleSettings: {},
         onDismissOverlay: {},
         onGoBack: {},
         onGoForward: {},
         onReload: {},
+        onPageTitleChange: {},
         shortcuts: BrowserShortcutStore.defaults
     )
 }

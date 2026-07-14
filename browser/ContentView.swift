@@ -11,9 +11,14 @@ struct ContentView: View {
         static let defaultsKey = "browser.favorites"
     }
 
+    private enum ClosedTabStore {
+        static let limit = 20
+    }
+
     private enum ActiveOverlay {
         case none
         case sidebar
+        case history
         case spotlight
         case commandPalette
         case find
@@ -24,6 +29,7 @@ struct ContentView: View {
         case browser
         case capture
         case sidebarURL
+        case history
         case spotlight
         case commandPalette
         case find
@@ -34,6 +40,7 @@ struct ContentView: View {
         case newTab
         case closeWorkspace
         case closeTab
+        case reopenClosedTab
         case nextWorkspace
         case previousWorkspace
         case nextTab
@@ -43,6 +50,7 @@ struct ContentView: View {
         case moveTabDown
         case moveTabUp
         case sidebar
+        case history
         case spotlight
         case commandPalette
         case find
@@ -55,6 +63,7 @@ struct ContentView: View {
         case newTab
         case closeWorkspace
         case closeTab
+        case reopenClosedTab
         case nextWorkspace
         case previousWorkspace
         case nextTab
@@ -70,6 +79,8 @@ struct ContentView: View {
                 return "Close Workspace"
             case .closeTab:
                 return "Close Tab"
+            case .reopenClosedTab:
+                return "Reopen Closed Tab"
             case .nextWorkspace:
                 return "Next Workspace"
             case .previousWorkspace:
@@ -87,6 +98,7 @@ struct ContentView: View {
             case .newTab: ["ot", "new tab", "tab", "create tab", "open tab"]
             case .closeWorkspace: ["cw", "close workspace", "delete workspace", "kill workspace"]
             case .closeTab: ["ct", "close tab", "delete tab", "kill tab", "close current tab"]
+            case .reopenClosedTab: ["rt", "reopen tab", "restore tab", "undo close tab", "reopen closed tab"]
             case .nextWorkspace: ["next workspace", "workspace right"]
             case .previousWorkspace: ["previous workspace", "workspace left"]
             case .nextTab: ["next tab", "tab right"]
@@ -106,6 +118,7 @@ struct ContentView: View {
     private enum CommandPaletteSuggestionKind {
         case command(BrowserCommand)
         case commandCompletion(String)
+        case reopenClosedTab(ClosedTabEntry)
         case openNew(String)
         case openTabMatch(CommandPaletteTabMatch)
     }
@@ -125,10 +138,20 @@ struct ContentView: View {
         let tokens: [String]
     }
 
+    private struct ClosedTabEntry: Identifiable {
+        let id = UUID()
+        let tab: BrowserTab
+        let closedFromWorkspaceID: UUID
+        let closedAt: Date
+    }
+
     @State private var activeOverlay: ActiveOverlay = .none
     @State private var workspaces: [BrowserWorkspace] = [BrowserWorkspace()]
+    @State private var recentlyClosedTabs: [ClosedTabEntry] = []
     @State private var selectedWorkspaceID: UUID? = nil
     @State private var sidebarURLText = BrowserHomePage.url.absoluteString
+    @State private var historySearchText = ""
+    @State private var selectedHistoryItemID: UUID? = nil
     @State private var spotlightText = ""
     @State private var spotlightFocusRequestID = 0
     @State private var commandPaletteText = ""
@@ -140,6 +163,7 @@ struct ContentView: View {
     @State private var findFocusRequestID = 0
     @State private var findStatus = BrowserFindStatus.empty
     @State private var sidebarURLFocusRequestID = 0
+    @State private var historyFocusRequestID = 0
     @State private var browserFocusRequestID = 0
     @State private var captureFocusRequestID = 0
     @State private var keyboardFocusTarget: KeyboardFocusTarget = .browser
@@ -154,6 +178,7 @@ struct ContentView: View {
         ZStack(alignment: .leading) {
             mainContent
             sidebar
+            historySidebar
             spotlight
             commandPalette
             findOverlay
@@ -187,6 +212,9 @@ struct ContentView: View {
             if activeOverlay == .none {
                 restoreDefaultKeyboardFocus()
             }
+        }
+        .onChange(of: historySearchText) { _, _ in
+            syncHistorySelection()
         }
     }
 
@@ -228,6 +256,28 @@ struct ContentView: View {
         }
     }
 
+    private var historySidebarItems: [SidebarTabItem] {
+        let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return recentlyClosedTabs.compactMap { closedTab in
+            let tabTitle = title(for: closedTab.tab, index: 0)
+            let haystack = "\(tabTitle) \(closedTab.tab.currentURLString)".lowercased()
+            guard query.isEmpty || haystack.contains(query) else { return nil }
+
+            return SidebarTabItem(
+                id: closedTab.id,
+                title: tabTitle,
+                currentURLString: closedTab.tab.currentURLString,
+                currentPageURL: closedTab.tab.currentPageURL
+            )
+        }
+    }
+
+    private var historyPreviewTab: BrowserTab? {
+        guard activeOverlay == .history, let selectedHistoryItemID else { return nil }
+        return recentlyClosedTabs.first(where: { $0.id == selectedHistoryItemID })?.tab
+    }
+
     private var mainContent: some View {
         ZStack {
             ForEach(workspaces) { workspace in
@@ -235,13 +285,15 @@ struct ContentView: View {
                     BrowserWebView(
                         url: binding(for: tab, keyPath: \.currentPageURL),
                         currentURLString: binding(for: tab, keyPath: \.currentURLString),
+                        pageTitle: binding(for: tab, keyPath: \.pageTitle),
                         navigationController: tab.navigationController,
                         focusRequestID: browserFocusRequestID(for: tab, in: workspace),
-                        isSidebarNavigationEnabled: activeOverlay == .sidebar,
+                        isSidebarNavigationEnabled: activeOverlay == .sidebar || activeOverlay == .history,
                         onNewWorkspace: createNewWorkspace,
                         onNewTab: createNewTab,
                         onCloseWorkspace: closeCurrentWorkspace,
                         onCloseTab: closeCurrentTab,
+                        onReopenClosedTab: reopenClosedTabInCurrentWorkspace,
                         onNextWorkspace: selectNextWorkspace,
                         onPreviousWorkspace: selectPreviousWorkspace,
                         onNextTab: selectNextTab,
@@ -254,17 +306,57 @@ struct ContentView: View {
                         onToggleSpotlight: toggleSpotlight,
                         onToggleCommandPalette: toggleCommandPalette,
                         onToggleFind: toggleFind,
+                        onToggleHistory: toggleHistory,
                         onToggleSettings: toggleSettings,
                         onDismissOverlay: dismissSpotlight,
                         onGoBack: goBack,
                         onGoForward: goForward,
                         onReload: reload,
+                        onPageTitleChange: refreshTabTitles,
                         shortcuts: shortcuts
                     )
                     .ignoresSafeArea()
                     .opacity(isVisible(tab: tab, in: workspace) ? 1 : 0)
                     .allowsHitTesting(isVisible(tab: tab, in: workspace))
                 }
+            }
+
+            if let historyPreviewTab {
+                BrowserWebView(
+                    url: binding(for: historyPreviewTab, keyPath: \.currentPageURL),
+                    currentURLString: binding(for: historyPreviewTab, keyPath: \.currentURLString),
+                    pageTitle: binding(for: historyPreviewTab, keyPath: \.pageTitle),
+                    navigationController: historyPreviewTab.navigationController,
+                    focusRequestID: nil,
+                    isSidebarNavigationEnabled: true,
+                    onNewWorkspace: createNewWorkspace,
+                    onNewTab: createNewTab,
+                    onCloseWorkspace: closeCurrentWorkspace,
+                    onCloseTab: closeCurrentTab,
+                    onReopenClosedTab: reopenClosedTabInCurrentWorkspace,
+                    onNextWorkspace: selectNextWorkspace,
+                    onPreviousWorkspace: selectPreviousWorkspace,
+                    onNextTab: selectNextTab,
+                    onPreviousTab: selectPreviousTab,
+                    onMoveTabToNextWorkspace: moveCurrentTabToNextWorkspace,
+                    onMoveTabToPreviousWorkspace: moveCurrentTabToPreviousWorkspace,
+                    onMoveTabDown: moveCurrentTabDown,
+                    onMoveTabUp: moveCurrentTabUp,
+                    onToggleSidebar: toggleSidebar,
+                    onToggleSpotlight: toggleSpotlight,
+                    onToggleCommandPalette: toggleCommandPalette,
+                    onToggleFind: toggleFind,
+                    onToggleHistory: toggleHistory,
+                    onToggleSettings: toggleSettings,
+                    onDismissOverlay: dismissSpotlight,
+                    onGoBack: goBack,
+                    onGoForward: goForward,
+                    onReload: reload,
+                    onPageTitleChange: refreshTabTitles,
+                    shortcuts: shortcuts
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -282,14 +374,54 @@ struct ContentView: View {
                 selectedWorkspaceIndex: activeWorkspaceIndex ?? 0,
                 urlFieldFocusRequestID: sidebarURLFocusRequestID == 0 ? nil : sidebarURLFocusRequestID,
                 onSelectTab: selectTab,
+                onHoverTab: nil,
                 onCloseTab: closeTab,
                 onSidebarShortcut: toggleSidebar,
                 onSpotlightShortcut: toggleSpotlight,
                 onCommandPaletteShortcut: toggleCommandPalette,
                 onFindShortcut: toggleFind,
+                onHistoryShortcut: toggleHistory,
                 onSettingsShortcut: toggleSettings,
+                onNextItemShortcut: nil,
+                onPreviousItemShortcut: nil,
                 onDismiss: dismissSpotlight,
                 onSubmit: submitSidebarURL,
+                shortcuts: shortcuts
+            )
+            .transition(.move(edge: .leading))
+            .zIndex(1)
+        }
+    }
+
+    @ViewBuilder
+    private var historySidebar: some View {
+        if activeOverlay == .history {
+            SidebarView(
+                urlText: $historySearchText,
+                currentPageURL: BrowserHomePage.url,
+                tabs: historySidebarItems,
+                selectedTabID: selectedHistoryItemID,
+                workspaceCount: workspaces.count,
+                selectedWorkspaceIndex: activeWorkspaceIndex ?? 0,
+                urlFieldFocusRequestID: historyFocusRequestID == 0 ? nil : historyFocusRequestID,
+                placeholder: "History",
+                showsCurrentPageFavicon: false,
+                showsWorkspaceIndicator: false,
+                showsCloseButtons: false,
+                usesBareNavigationShortcuts: true,
+                onSelectTab: reopenClosedTabFromHistory,
+                onHoverTab: selectHistoryItem,
+                onCloseTab: { _ in },
+                onSidebarShortcut: toggleSidebar,
+                onSpotlightShortcut: toggleSpotlight,
+                onCommandPaletteShortcut: toggleCommandPalette,
+                onFindShortcut: toggleFind,
+                onHistoryShortcut: toggleHistory,
+                onSettingsShortcut: toggleSettings,
+                onNextItemShortcut: { moveHistorySelection(by: 1) },
+                onPreviousItemShortcut: { moveHistorySelection(by: -1) },
+                onDismiss: dismissSpotlight,
+                onSubmit: submitHistorySearch,
                 shortcuts: shortcuts
             )
             .transition(.move(edge: .leading))
@@ -307,8 +439,8 @@ struct ContentView: View {
                 focusRequestID: spotlightFocusRequestID == 0 ? nil : spotlightFocusRequestID,
                 onSidebarShortcut: toggleSidebar,
                 onFindShortcut: toggleFind,
+                onHistoryShortcut: toggleHistory,
                 onSpotlightShortcut: toggleSpotlight,
-                onCommandPaletteShortcut: toggleCommandPalette,
                 onSettingsShortcut: toggleSettings,
                 shortcuts: shortcuts,
                 onSubmit: submitSpotlight,
@@ -327,7 +459,6 @@ struct ContentView: View {
         if activeOverlay == .commandPalette {
             SpotlightView(
                 text: $commandPaletteText,
-                placeholder: "Command",
                 pageURL: commandPaletteFaviconURL,
                 showsFavicon: commandPaletteFaviconURL != nil,
                 showsFaviconPlaceholder: false,
@@ -337,6 +468,7 @@ struct ContentView: View {
                 onTextChange: { _ in resetCommandPaletteSelection() },
                 onSidebarShortcut: toggleSidebar,
                 onFindShortcut: toggleFind,
+                onHistoryShortcut: toggleHistory,
                 onSpotlightShortcut: toggleSpotlight,
                 onCommandPaletteShortcut: toggleCommandPalette,
                 onSettingsShortcut: toggleSettings,
@@ -363,6 +495,7 @@ struct ContentView: View {
             onTextChange: updateFindResults,
             onSidebarShortcut: toggleSidebar,
             onFindShortcut: toggleFind,
+            onHistoryShortcut: toggleHistory,
             onSpotlightShortcut: toggleSpotlight,
             onSettingsShortcut: toggleSettings,
             shortcuts: shortcuts,
@@ -398,12 +531,13 @@ struct ContentView: View {
 
     @ViewBuilder
     private var keyboardCaptureLayer: some View {
-        if activeOverlay == .sidebar || (activeOverlay == .none && keyboardFocusTarget == .capture) {
+        if activeOverlay == .sidebar || activeOverlay == .history || (activeOverlay == .none && keyboardFocusTarget == .capture) {
             KeyboardCaptureView(
                 onNewWorkspace: createNewWorkspace,
                 onNewTab: createNewTab,
                 onCloseWorkspace: closeCurrentWorkspace,
                 onCloseTab: closeCurrentTab,
+                onReopenClosedTab: reopenClosedTabInCurrentWorkspace,
                 onNextWorkspace: selectNextWorkspace,
                 onPreviousWorkspace: selectPreviousWorkspace,
                 onNextTab: selectNextTab,
@@ -416,7 +550,10 @@ struct ContentView: View {
                 onToggleSpotlight: toggleSpotlight,
                 onToggleCommandPalette: toggleCommandPalette,
                 onToggleFind: toggleFind,
+                onToggleHistory: toggleHistory,
                 onToggleSettings: toggleSettings,
+                onSubmitSelection: submitHistorySearch,
+                onFocusFilter: focusHistoryFilter,
                 onDismissSpotlight: dismissSpotlight,
                 onGoBack: goBack,
                 onGoForward: goForward,
@@ -485,6 +622,8 @@ struct ContentView: View {
             captureFocusRequestID += 1
         case .sidebarURL:
             sidebarURLFocusRequestID += 1
+        case .history:
+            historyFocusRequestID += 1
         case .spotlight:
             spotlightFocusRequestID += 1
         case .commandPalette:
@@ -523,6 +662,12 @@ struct ContentView: View {
         }
     }
 
+    private func reopenClosedTabInCurrentWorkspace() {
+        handleShortcut(.reopenClosedTab) {
+            reopenMostRecentlyClosedTab()
+        }
+    }
+
     private func closeCurrentWorkspace() {
         handleShortcut(.closeWorkspace) {
             perform(.closeWorkspace)
@@ -542,12 +687,22 @@ struct ContentView: View {
     }
 
     private func selectNextTab() {
+        if activeOverlay == .history {
+            moveHistorySelection(by: 1)
+            return
+        }
+
         handleShortcut(.nextTab) {
             perform(.nextTab)
         }
     }
 
     private func selectPreviousTab() {
+        if activeOverlay == .history {
+            moveHistorySelection(by: -1)
+            return
+        }
+
         handleShortcut(.previousTab) {
             perform(.previousTab)
         }
@@ -590,6 +745,8 @@ struct ContentView: View {
     private func closeTab(_ id: UUID) {
         guard let workspace = activeWorkspace else { return }
         guard let closingIndex = workspace.tabs.firstIndex(where: { $0.id == id }) else { return }
+        let closingTab = workspace.tabs[closingIndex]
+        rememberClosedTab(closingTab, from: workspace)
 
         if workspace.tabs.count == 1 {
             let replacementTab = BrowserTab()
@@ -615,8 +772,83 @@ struct ContentView: View {
         refreshAfterStructuralChange()
     }
 
+    private func rememberClosedTab(_ tab: BrowserTab, from workspace: BrowserWorkspace) {
+        guard tab.currentPageURL != BrowserHomePage.url else { return }
+
+        recentlyClosedTabs.removeAll { $0.tab.id == tab.id }
+        recentlyClosedTabs.insert(
+            ClosedTabEntry(tab: tab, closedFromWorkspaceID: workspace.id, closedAt: Date()),
+            at: 0
+        )
+
+        if recentlyClosedTabs.count > ClosedTabStore.limit {
+            recentlyClosedTabs.removeLast(recentlyClosedTabs.count - ClosedTabStore.limit)
+        }
+    }
+
+    private func reopenMostRecentlyClosedTab() {
+        guard let closedTab = recentlyClosedTabs.first else { return }
+        recentlyClosedTabs.removeFirst()
+        restoreClosedTab(closedTab, in: activeWorkspace)
+    }
+
+    private func restoreClosedTab(_ closedTab: ClosedTabEntry, in preferredWorkspace: BrowserWorkspace? = nil) {
+        let targetWorkspace = preferredWorkspace ?? workspaces.first(where: { $0.id == closedTab.closedFromWorkspaceID }) ?? activeWorkspace
+        guard let targetWorkspace else { return }
+
+        targetWorkspace.tabs.append(closedTab.tab)
+        targetWorkspace.selectedTabID = closedTab.tab.id
+        selectedWorkspaceID = targetWorkspace.id
+        closedTab.tab.navigationController.webView?.removeFromSuperview()
+        refreshAfterStructuralChange()
+    }
+
+    private func reopenClosedTabFromHistory(_ id: UUID) {
+        guard let index = recentlyClosedTabs.firstIndex(where: { $0.id == id }) else { return }
+        let closedTab = recentlyClosedTabs.remove(at: index)
+        restoreClosedTab(closedTab, in: activeWorkspace)
+        selectedHistoryItemID = nil
+        activeOverlay = .none
+    }
+
+    private func selectHistoryItem(_ id: UUID) {
+        guard activeOverlay == .history else { return }
+        selectedHistoryItemID = id
+    }
+
+    private func syncHistorySelection() {
+        let items = historySidebarItems
+        guard !items.isEmpty else {
+            selectedHistoryItemID = nil
+            return
+        }
+
+        if let selectedHistoryItemID,
+           items.contains(where: { $0.id == selectedHistoryItemID }) {
+            return
+        }
+
+        selectedHistoryItemID = items.first?.id
+    }
+
+    private func moveHistorySelection(by offset: Int) {
+        let items = historySidebarItems
+        guard !items.isEmpty else {
+            selectedHistoryItemID = nil
+            return
+        }
+
+        let currentIndex = selectedHistoryItemID.flatMap { selectedID in
+            items.firstIndex(where: { $0.id == selectedID })
+        } ?? 0
+        let nextIndex = (currentIndex + offset + items.count) % items.count
+        selectedHistoryItemID = items[nextIndex].id
+    }
+
     private func closeWorkspace(_ id: UUID) {
         guard let closingIndex = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let closingWorkspace = workspaces[closingIndex]
+        rememberClosedTabs(from: closingWorkspace)
 
         if workspaces.count == 1 {
             let replacementWorkspace = BrowserWorkspace()
@@ -641,6 +873,12 @@ struct ContentView: View {
 
         ensureWorkspaceSelectionIntegrity()
         refreshAfterStructuralChange()
+    }
+
+    private func rememberClosedTabs(from workspace: BrowserWorkspace) {
+        for tab in workspace.tabs.reversed() {
+            rememberClosedTab(tab, from: workspace)
+        }
     }
 
     private func reorderCurrentTab(by offset: Int) {
@@ -701,6 +939,19 @@ struct ContentView: View {
         activeOverlay = .none
     }
 
+    private func submitHistorySearch() {
+        guard activeOverlay == .history else { return }
+        syncHistorySelection()
+        if let selectedHistoryItemID {
+            reopenClosedTabFromHistory(selectedHistoryItemID)
+        }
+    }
+
+    private func focusHistoryFilter() {
+        guard activeOverlay == .history else { return }
+        requestKeyboardFocus(.history)
+    }
+
     private func submitCommandPalette() {
         let query = commandPaletteText.trimmingCharacters(in: .whitespacesAndNewlines)
         if handleParameterizedCommand(query) {
@@ -727,6 +978,7 @@ struct ContentView: View {
 
         tab.currentPageURL = url
         tab.currentURLString = url.absoluteString
+        tab.pageTitle = ""
         tabRenderVersion += 1
         if tab.id == activeTab?.id {
             sidebarURLText = url.absoluteString
@@ -747,6 +999,8 @@ struct ContentView: View {
             if let selectedTabID = activeWorkspace?.selectedTabID {
                 closeTab(selectedTabID)
             }
+        case .reopenClosedTab:
+            reopenMostRecentlyClosedTab()
         case .nextWorkspace:
             moveWorkspaceSelection(by: 1)
         case .previousWorkspace:
@@ -844,6 +1098,7 @@ struct ContentView: View {
         var suggestions = matchingCommandSuggestions(for: query)
         suggestions.append(contentsOf: matchingCommandCompletionSuggestions(for: query))
         suggestions.append(contentsOf: matchingFavoriteAliasCompletionSuggestions(for: query))
+        suggestions.append(contentsOf: matchingClosedTabSuggestions(for: query))
 
         let matches = matchingOpenTabs(for: query)
 
@@ -891,7 +1146,7 @@ struct ContentView: View {
             completion = bestCommandCompletion(for: query, command: command)
         case .commandCompletion(let commandCompletion):
             completion = commandCompletion
-        case .openNew, .openTabMatch:
+        case .reopenClosedTab, .openNew, .openTabMatch:
             completion = nil
         }
 
@@ -1098,6 +1353,45 @@ struct ContentView: View {
             }
     }
 
+    private func matchingClosedTabSuggestions(for query: String) -> [CommandPaletteSuggestionItem] {
+        let normalizedQuery = query.lowercased()
+        let shouldShowClosedTabs =
+            "reopen closed tab".hasPrefix(normalizedQuery) ||
+            "restore tab".hasPrefix(normalizedQuery) ||
+            "history".hasPrefix(normalizedQuery) ||
+            normalizedQuery.hasPrefix("rt ") ||
+            normalizedQuery.hasPrefix("reopen ") ||
+            normalizedQuery.hasPrefix("restore ") ||
+            normalizedQuery.hasPrefix("history ")
+
+        guard shouldShowClosedTabs else { return [] }
+
+        let searchText = closedTabSearchText(from: normalizedQuery)
+
+        return recentlyClosedTabs.compactMap { closedTab in
+            let tabTitle = title(for: closedTab.tab, index: 0)
+            let haystack = "\(tabTitle) \(closedTab.tab.currentURLString)".lowercased()
+            guard searchText.isEmpty || haystack.contains(searchText) else { return nil }
+
+            return CommandPaletteSuggestionItem(
+                id: "closed-tab-\(closedTab.id.uuidString)",
+                title: "Reopen \(tabTitle)",
+                subtitle: closedTab.tab.currentURLString,
+                kind: .reopenClosedTab(closedTab)
+            )
+        }
+    }
+
+    private func closedTabSearchText(from normalizedQuery: String) -> String {
+        for prefix in ["rt ", "reopen ", "restore ", "history "] {
+            if normalizedQuery.hasPrefix(prefix) {
+                return String(normalizedQuery.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        return ""
+    }
+
     private func matchingOpenTabs(for query: String) -> [CommandPaletteTabMatch] {
         let normalizedQuery = query.lowercased()
         let favoriteAliasTarget = favorite(forAlias: normalizedQuery)?.urlString.lowercased()
@@ -1219,7 +1513,8 @@ struct ContentView: View {
         let alias = normalizedAlias(rawAlias)
         guard !alias.isEmpty else { return false }
 
-        let title = siteLabel(for: activeTab.currentPageURL) ?? activeTab.currentPageURL.host() ?? activeTab.currentURLString
+        let pageTitle = activeTab.pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = pageTitle.isEmpty ? (siteLabel(for: activeTab.currentPageURL) ?? activeTab.currentPageURL.host() ?? activeTab.currentURLString) : pageTitle
         let favorite = BrowserFavorite(
             title: title,
             alias: alias,
@@ -1283,6 +1578,10 @@ struct ContentView: View {
         clearFindState()
     }
 
+    private func refreshTabTitles() {
+        tabRenderVersion += 1
+    }
+
     private func handleShortcut(_ action: ShortcutAction, perform operation: () -> Void) {
         guard canHandleShortcut(action) else { return }
         operation()
@@ -1304,6 +1603,35 @@ struct ContentView: View {
         }
 
         clearFindState()
+    }
+
+    private func toggleHistory() {
+        guard canHandleShortcut(.history) else { return }
+
+        let shouldClearFind = activeOverlay == .find || !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
+
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if activeOverlay == .history {
+                historyFocusRequestID = 0
+                selectedHistoryItemID = nil
+                activeOverlay = .none
+            } else {
+                historySearchText = ""
+                selectedHistoryItemID = historySidebarItems.first?.id
+                if activeOverlay == .sidebar {
+                    sidebarURLFocusRequestID = 0
+                }
+                if activeOverlay == .spotlight {
+                    spotlightFocusRequestID = 0
+                }
+                activeOverlay = .history
+                requestKeyboardFocus(.history)
+            }
+        }
+
+        if shouldClearFind {
+            clearFindState()
+        }
     }
 
     private func toggleSpotlight() {
@@ -1403,6 +1731,8 @@ struct ContentView: View {
             commandPaletteText = completion
             commandPaletteSelectionIndex = 0
             requestKeyboardFocus(.commandPalette)
+        case .reopenClosedTab:
+            break
         case .openNew, .openTabMatch:
             break
         }
@@ -1419,6 +1749,12 @@ struct ContentView: View {
             commandPaletteText = completion
             commandPaletteSelectionIndex = 0
             requestKeyboardFocus(.commandPalette)
+        case .reopenClosedTab(let closedTab):
+            closeCommandPalette(restoreSelection: false)
+            if let index = recentlyClosedTabs.firstIndex(where: { $0.id == closedTab.id }) {
+                let entry = recentlyClosedTabs.remove(at: index)
+                restoreClosedTab(entry)
+            }
         case .openNew(let query):
             openCommandPaletteQueryInNewTab(query)
         case .openTabMatch(let match):
@@ -1433,7 +1769,7 @@ struct ContentView: View {
         }
 
         switch commandPaletteSuggestionItems[normalizedCommandPaletteSelectionIndex].kind {
-        case .command, .commandCompletion, .openNew:
+        case .command, .commandCompletion, .reopenClosedTab, .openNew:
             restoreCommandPaletteOriginSelection()
         case .openTabMatch(let match):
             selectedWorkspaceID = match.workspaceID
@@ -1595,6 +1931,11 @@ struct ContentView: View {
     private func title(for tab: BrowserTab, index: Int) -> String {
         if tab.currentPageURL == BrowserHomePage.url {
             return "Tab \(index + 1)"
+        }
+
+        let pageTitle = tab.pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pageTitle.isEmpty {
+            return pageTitle
         }
 
         return siteLabel(for: tab.currentPageURL) ?? "Tab \(index + 1)"

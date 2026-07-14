@@ -8,11 +8,14 @@ import UIKit
 
 struct SettingsView: View {
     private enum Style {
-        static let width: CGFloat = 680
-        static let maxHeight: CGFloat = 720
-        static let rowHeight: CGFloat = 54
-        static let cornerRadius: CGFloat = 14
+        static let fieldWidth: CGFloat = 620
+        static let fieldHeight: CGFloat = 72
+        static let rowHeight: CGFloat = 52
+        static let cornerRadius: CGFloat = 18
+        static let horizontalPadding: CGFloat = 24
         static let fontName = "LilexNFM-Regular"
+        static let backgroundColor = Color.black.opacity(0.82)
+        static let borderColor = Color.white.opacity(0.18)
     }
 
     @Binding var shortcuts: [BrowserShortcutAction: BrowserShortcut]
@@ -21,55 +24,56 @@ struct SettingsView: View {
     @State private var recorderFocusRequestID = 0
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.28)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onDismiss)
+        GeometryReader { geometry in
+            ZStack {
+                VStack(spacing: 12) {
+                    HStack(spacing: 16) {
+                        Text("Settings")
+                            .font(.custom(Style.fontName, size: 24))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
 
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Settings")
-                        .font(.custom(Style.fontName, size: 22))
-                        .foregroundStyle(.white)
+                        Spacer(minLength: 0)
 
-                    Spacer()
-
-                    Button("Reset Shortcuts") {
-                        resetShortcuts()
+                        Button {
+                            resetShortcuts()
+                        } label: {
+                            Text("Reset Shortcuts")
+                                .font(.custom(Style.fontName, size: 14))
+                                .foregroundStyle(.white.opacity(0.72))
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .font(.custom(Style.fontName, size: 14))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, Style.horizontalPadding)
+                    .frame(height: Style.fieldHeight)
+
+                    shortcutSection
+                        .frame(maxHeight: min(Style.rowHeight * CGFloat(BrowserShortcutAction.allCases.count), geometry.size.height * 0.58))
                 }
-                .padding(.horizontal, 20)
-                .frame(height: 62)
-
-                Divider().overlay(Color.white.opacity(0.12))
-
-                shortcutSection
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
-            .frame(width: Style.width)
-            .frame(maxHeight: Style.maxHeight)
-            .background(Color.black.opacity(0.86))
-            .overlay(
-                RoundedRectangle(cornerRadius: Style.cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: Style.cornerRadius, style: .continuous))
-            .overlay {
-                ShortcutRecorderView(
-                    isRecording: recordingAction != nil,
-                    focusRequestID: recorderFocusRequestID == 0 ? nil : recorderFocusRequestID,
-                    onShortcut: recordShortcut,
-                    onDismiss: {
-                        recordingAction = nil
-                    }
+                .frame(width: Style.fieldWidth)
+                .background(Style.backgroundColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Style.cornerRadius, style: .continuous)
+                        .stroke(Style.borderColor, lineWidth: 1)
                 )
-                .frame(width: 1, height: 1)
-                .opacity(0)
+                .clipShape(RoundedRectangle(cornerRadius: Style.cornerRadius, style: .continuous))
+                .overlay {
+                    ShortcutRecorderView(
+                        isRecording: recordingAction != nil,
+                        focusRequestID: recorderFocusRequestID == 0 ? nil : recorderFocusRequestID,
+                        onShortcut: recordShortcut,
+                        onDismiss: {
+                            recordingAction = nil
+                        }
+                    )
+                    .frame(width: 1, height: 1)
+                    .opacity(0)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, max(0, geometry.size.height * 0.25 - Style.fieldHeight / 2))
         }
+        .ignoresSafeArea()
     }
 
     private var shortcutSection: some View {
@@ -92,28 +96,35 @@ struct SettingsView: View {
     }
 
     private func shortcutRow(for action: BrowserShortcutAction) -> some View {
-        HStack(spacing: 14) {
-            Text(action.title)
-                .font(.custom(Style.fontName, size: 16))
-                .foregroundStyle(.white)
+        Button {
+            recordingAction = action
+            recorderFocusRequestID += 1
+        } label: {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(action.title)
+                        .font(.custom(Style.fontName, size: 16))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
 
-            Spacer()
+                    Text(recordingAction == action ? "Press a new shortcut" : shortcut(for: action).displayText)
+                        .font(.custom(Style.fontName, size: 12))
+                        .foregroundStyle(recordingAction == action ? Color.black.opacity(0.72) : Color.white.opacity(0.6))
+                        .lineLimit(1)
+                }
 
-            Button {
-                recordingAction = action
-                recorderFocusRequestID += 1
-            } label: {
-                Text(recordingAction == action ? "Press keys" : shortcut(for: action).displayText)
+                Spacer(minLength: 0)
+
+                Text(shortcut(for: action).displayText)
                     .font(.custom(Style.fontName, size: 14))
-                    .foregroundStyle(recordingAction == action ? .black : .white)
-                    .frame(minWidth: 128, minHeight: 34)
-                    .background(recordingAction == action ? Color.white : Color.white.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .foregroundStyle(recordingAction == action ? Color.black : Color.white.opacity(0.82))
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 18)
+            .frame(height: Style.rowHeight, alignment: .leading)
         }
-        .padding(.horizontal, 20)
-        .frame(height: Style.rowHeight)
+        .buttonStyle(.plain)
+        .background(recordingAction == action ? Color.white : Color.clear)
     }
 
     private func shortcut(for action: BrowserShortcutAction) -> BrowserShortcut {

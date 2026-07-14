@@ -41,6 +41,7 @@ struct SpotlightView: View {
     var onTextChange: ((String) -> Void)? = nil
     var onSidebarShortcut: (() -> Void)? = nil
     var onFindShortcut: (() -> Void)? = nil
+    var onHistoryShortcut: (() -> Void)? = nil
     var onSpotlightShortcut: (() -> Void)? = nil
     var onCommandPaletteShortcut: (() -> Void)? = nil
     var onSettingsShortcut: (() -> Void)? = nil
@@ -145,6 +146,8 @@ struct SpotlightView: View {
             onCommandPaletteShortcut?()
         case .find:
             onFindShortcut?()
+        case .history:
+            onHistoryShortcut?()
         case .settings:
             onSettingsShortcut?()
         case .nextOption:
@@ -153,6 +156,8 @@ struct SpotlightView: View {
             onPreviousSuggestionShortcut?()
         case .completeOption:
             onCompleteSuggestionShortcut?()
+        case .submitOption:
+            onSubmit()
         case .dismiss:
             onDismiss()
         }

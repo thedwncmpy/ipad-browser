@@ -10,6 +10,7 @@ enum BrowserShortcutAction: String, CaseIterable, Codable, Identifiable {
     case newTab
     case closeWorkspace
     case closeTab
+    case reopenClosedTab
     case previousWorkspace
     case nextWorkspace
     case nextTab
@@ -23,6 +24,7 @@ enum BrowserShortcutAction: String, CaseIterable, Codable, Identifiable {
     case spotlightAlternate
     case commandPalette
     case find
+    case history
     case settings
     case dismiss
     case back
@@ -45,6 +47,8 @@ enum BrowserShortcutAction: String, CaseIterable, Codable, Identifiable {
             return "Close Workspace"
         case .closeTab:
             return "Close Tab"
+        case .reopenClosedTab:
+            return "Reopen Closed Tab"
         case .previousWorkspace:
             return "Previous Workspace"
         case .nextWorkspace:
@@ -71,6 +75,8 @@ enum BrowserShortcutAction: String, CaseIterable, Codable, Identifiable {
             return "Command Palette"
         case .find:
             return "Find"
+        case .history:
+            return "History"
         case .settings:
             return "Settings"
         case .dismiss:
@@ -150,6 +156,7 @@ enum BrowserShortcutStore {
         .newTab: BrowserShortcut(input: "t", modifiers: [.command]),
         .closeWorkspace: BrowserShortcut(input: "w", modifiers: [.command, .shift]),
         .closeTab: BrowserShortcut(input: "w", modifiers: [.command]),
+        .reopenClosedTab: BrowserShortcut(input: "t", modifiers: [.command, .shift]),
         .previousWorkspace: BrowserShortcut(input: "h", modifiers: [.control]),
         .nextWorkspace: BrowserShortcut(input: "l", modifiers: [.control]),
         .nextTab: BrowserShortcut(input: "j", modifiers: [.control]),
@@ -163,6 +170,7 @@ enum BrowserShortcutStore {
         .spotlightAlternate: BrowserShortcut(input: " ", modifiers: [.command, .shift]),
         .commandPalette: BrowserShortcut(input: " ", modifiers: [.alternate]),
         .find: BrowserShortcut(input: "f", modifiers: [.command]),
+        .history: BrowserShortcut(input: "y", modifiers: [.command]),
         .settings: BrowserShortcut(input: ",", modifiers: [.command]),
         .dismiss: BrowserShortcut(input: UIKeyCommand.inputEscape, modifiers: []),
         .back: BrowserShortcut(input: "[", modifiers: [.command]),

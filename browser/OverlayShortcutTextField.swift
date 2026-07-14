@@ -12,10 +12,12 @@ struct OverlayShortcutTextField: UIViewRepresentable {
         case spotlight
         case commandPalette
         case find
+        case history
         case settings
         case nextOption
         case previousOption
         case completeOption
+        case submitOption
         case dismiss
     }
 
@@ -30,6 +32,7 @@ struct OverlayShortcutTextField: UIViewRepresentable {
     let onTextChange: ((String) -> Void)?
     let onShortcut: ((ShortcutAction) -> Void)?
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
+    var usesBareNavigationShortcuts = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, onSubmit: onSubmit, onTextChange: onTextChange)
@@ -68,6 +71,7 @@ struct OverlayShortcutTextField: UIViewRepresentable {
         uiView.shortcutHandler = onShortcut
         uiView.focusCoordinator = context.coordinator
         uiView.shortcuts = shortcuts
+        uiView.usesBareNavigationShortcuts = usesBareNavigationShortcuts
 
         if let focusRequestID, context.coordinator.lastAppliedFocusRequestID != focusRequestID {
             context.coordinator.lastAppliedFocusRequestID = focusRequestID
@@ -106,6 +110,7 @@ final class ShortcutAwareUITextField: UITextField {
     var shortcutHandler: ((OverlayShortcutTextField.ShortcutAction) -> Void)?
     weak var focusCoordinator: OverlayShortcutTextField.Coordinator?
     var shortcuts = BrowserShortcutStore.defaults
+    var usesBareNavigationShortcuts = false
     var autocompleteText = "" {
         didSet {
             autocompleteLabel.text = autocompleteText
@@ -196,18 +201,31 @@ final class ShortcutAwareUITextField: UITextField {
     }
 
     override var keyCommands: [UIKeyCommand]? {
-        [
+        var commands = [
             shortcuts[.sidebar, default: BrowserShortcutStore.defaults[.sidebar]!].makeCommand(action: #selector(handleSidebarShortcut(_:))),
             shortcuts[.spotlight, default: BrowserShortcutStore.defaults[.spotlight]!].makeCommand(action: #selector(handleSpotlightShortcut(_:))),
             shortcuts[.spotlightAlternate, default: BrowserShortcutStore.defaults[.spotlightAlternate]!].makeCommand(action: #selector(handleSpotlightShortcut(_:))),
             shortcuts[.commandPalette, default: BrowserShortcutStore.defaults[.commandPalette]!].makeCommand(action: #selector(handleCommandPaletteShortcut(_:))),
             shortcuts[.find, default: BrowserShortcutStore.defaults[.find]!].makeCommand(action: #selector(handleFindShortcut(_:))),
+            shortcuts[.history, default: BrowserShortcutStore.defaults[.history]!].makeCommand(action: #selector(handleHistoryShortcut(_:))),
             shortcuts[.settings, default: BrowserShortcutStore.defaults[.settings]!].makeCommand(action: #selector(handleSettingsShortcut(_:))),
             prioritizedKeyCommand(input: "j", modifiers: [.control], action: #selector(handleNextOptionShortcut(_:))),
             prioritizedKeyCommand(input: "k", modifiers: [.control], action: #selector(handlePreviousOptionShortcut(_:))),
             prioritizedKeyCommand(input: "\t", modifiers: [], action: #selector(handleCompleteOptionShortcut(_:))),
             shortcuts[.dismiss, default: BrowserShortcutStore.defaults[.dismiss]!].makeCommand(action: #selector(handleDismissShortcut(_:)))
         ]
+
+        if usesBareNavigationShortcuts {
+            commands.append(contentsOf: [
+                prioritizedKeyCommand(input: "j", modifiers: [], action: #selector(handleNextOptionShortcut(_:))),
+                prioritizedKeyCommand(input: UIKeyCommand.inputDownArrow, modifiers: [], action: #selector(handleNextOptionShortcut(_:))),
+                prioritizedKeyCommand(input: "k", modifiers: [], action: #selector(handlePreviousOptionShortcut(_:))),
+                prioritizedKeyCommand(input: UIKeyCommand.inputUpArrow, modifiers: [], action: #selector(handlePreviousOptionShortcut(_:))),
+                prioritizedKeyCommand(input: "\r", modifiers: [], action: #selector(handleSubmitOptionShortcut(_:)))
+            ])
+        }
+
+        return commands
     }
 
     private func prioritizedKeyCommand(input: String, modifiers: UIKeyModifierFlags, action: Selector) -> UIKeyCommand {
@@ -232,6 +250,10 @@ final class ShortcutAwareUITextField: UITextField {
         shortcutHandler?(.find)
     }
 
+    @objc private func handleHistoryShortcut(_ sender: UIKeyCommand) {
+        shortcutHandler?(.history)
+    }
+
     @objc private func handleSettingsShortcut(_ sender: UIKeyCommand) {
         shortcutHandler?(.settings)
     }
@@ -246,6 +268,10 @@ final class ShortcutAwareUITextField: UITextField {
 
     @objc private func handleCompleteOptionShortcut(_ sender: UIKeyCommand) {
         shortcutHandler?(.completeOption)
+    }
+
+    @objc private func handleSubmitOptionShortcut(_ sender: UIKeyCommand) {
+        shortcutHandler?(.submitOption)
     }
 
     @objc private func handleDismissShortcut(_ sender: UIKeyCommand) {

@@ -13,6 +13,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onNewTab: () -> Void
     let onCloseWorkspace: () -> Void
     let onCloseTab: () -> Void
+    let onReopenClosedTab: () -> Void
     let onNextWorkspace: () -> Void
     let onPreviousWorkspace: () -> Void
     let onNextTab: () -> Void
@@ -25,7 +26,10 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onToggleSpotlight: () -> Void
     let onToggleCommandPalette: () -> Void
     let onToggleFind: () -> Void
+    let onToggleHistory: () -> Void
     let onToggleSettings: () -> Void
+    let onSubmitSelection: () -> Void
+    let onFocusFilter: () -> Void
     let onDismissSpotlight: () -> Void
     let onGoBack: () -> Void
     let onGoForward: () -> Void
@@ -48,6 +52,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onNewTab = onNewTab
         controller.onCloseWorkspace = onCloseWorkspace
         controller.onCloseTab = onCloseTab
+        controller.onReopenClosedTab = onReopenClosedTab
         controller.onNextWorkspace = onNextWorkspace
         controller.onPreviousWorkspace = onPreviousWorkspace
         controller.onNextTab = onNextTab
@@ -60,7 +65,10 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onToggleSpotlight = onToggleSpotlight
         controller.onToggleCommandPalette = onToggleCommandPalette
         controller.onToggleFind = onToggleFind
+        controller.onToggleHistory = onToggleHistory
         controller.onToggleSettings = onToggleSettings
+        controller.onSubmitSelection = onSubmitSelection
+        controller.onFocusFilter = onFocusFilter
         controller.onDismissSpotlight = onDismissSpotlight
         controller.onGoBack = onGoBack
         controller.onGoForward = onGoForward
@@ -79,6 +87,7 @@ final class KeyCaptureViewController: UIViewController {
     var onNewTab: (() -> Void)?
     var onCloseWorkspace: (() -> Void)?
     var onCloseTab: (() -> Void)?
+    var onReopenClosedTab: (() -> Void)?
     var onNextWorkspace: (() -> Void)?
     var onPreviousWorkspace: (() -> Void)?
     var onNextTab: (() -> Void)?
@@ -91,7 +100,10 @@ final class KeyCaptureViewController: UIViewController {
     var onToggleSpotlight: (() -> Void)?
     var onToggleCommandPalette: (() -> Void)?
     var onToggleFind: (() -> Void)?
+    var onToggleHistory: (() -> Void)?
     var onToggleSettings: (() -> Void)?
+    var onSubmitSelection: (() -> Void)?
+    var onFocusFilter: (() -> Void)?
     var onDismissSpotlight: (() -> Void)?
     var onGoBack: (() -> Void)?
     var onGoForward: (() -> Void)?
@@ -107,6 +119,7 @@ final class KeyCaptureViewController: UIViewController {
             newTabSelector: #selector(createNewTab(_:)),
             closeWorkspaceSelector: #selector(closeCurrentWorkspace(_:)),
             closeTabSelector: #selector(closeCurrentTab(_:)),
+            reopenClosedTabSelector: #selector(reopenClosedTab(_:)),
             nextWorkspaceSelector: #selector(selectNextWorkspace(_:)),
             previousWorkspaceSelector: #selector(selectPreviousWorkspace(_:)),
             nextTabSelector: #selector(selectNextTab(_:)),
@@ -119,6 +132,7 @@ final class KeyCaptureViewController: UIViewController {
             spotlightSelector: #selector(toggleSpotlight(_:)),
             commandPaletteSelector: #selector(toggleCommandPalette(_:)),
             findSelector: #selector(toggleFind(_:)),
+            historySelector: #selector(toggleHistory(_:)),
             settingsSelector: #selector(toggleSettings(_:)),
             dismissSelector: #selector(dismissSpotlight(_:)),
             backSelector: #selector(goBack(_:)),
@@ -133,7 +147,9 @@ final class KeyCaptureViewController: UIViewController {
             shortcuts[.sidebarModePreviousWorkspace, default: BrowserShortcutStore.defaults[.sidebarModePreviousWorkspace]!].makeCommand(action: #selector(selectPreviousWorkspace(_:))),
             UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(selectPreviousWorkspace(_:))),
             shortcuts[.sidebarModeNextWorkspace, default: BrowserShortcutStore.defaults[.sidebarModeNextWorkspace]!].makeCommand(action: #selector(selectNextWorkspace(_:))),
-            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(selectNextWorkspace(_:)))
+            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(selectNextWorkspace(_:))),
+            UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(submitSelection(_:))),
+            UIKeyCommand(input: "/", modifierFlags: [], action: #selector(focusFilter(_:)))
         ]
     }
 
@@ -147,6 +163,10 @@ final class KeyCaptureViewController: UIViewController {
 
     @objc private func closeCurrentTab(_ sender: UIKeyCommand) {
         onCloseTab?()
+    }
+
+    @objc private func reopenClosedTab(_ sender: UIKeyCommand) {
+        onReopenClosedTab?()
     }
 
     @objc private func closeCurrentWorkspace(_ sender: UIKeyCommand) {
@@ -218,8 +238,20 @@ final class KeyCaptureViewController: UIViewController {
         onToggleFind?()
     }
 
+    @objc private func toggleHistory(_ sender: UIKeyCommand) {
+        onToggleHistory?()
+    }
+
     @objc private func toggleSettings(_ sender: UIKeyCommand) {
         onToggleSettings?()
+    }
+
+    @objc private func submitSelection(_ sender: UIKeyCommand) {
+        onSubmitSelection?()
+    }
+
+    @objc private func focusFilter(_ sender: UIKeyCommand) {
+        onFocusFilter?()
     }
 
     @objc private func dismissSpotlight(_ sender: UIKeyCommand) {
