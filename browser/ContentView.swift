@@ -775,6 +775,7 @@ struct ContentView: View {
     private func rememberClosedTab(_ tab: BrowserTab, from workspace: BrowserWorkspace) {
         guard tab.currentPageURL != BrowserHomePage.url else { return }
 
+        tab.navigationController.pauseMedia()
         recentlyClosedTabs.removeAll { $0.tab.id == tab.id }
         recentlyClosedTabs.insert(
             ClosedTabEntry(tab: tab, closedFromWorkspaceID: workspace.id, closedAt: Date()),

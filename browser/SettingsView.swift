@@ -119,6 +119,10 @@ struct SettingsView: View {
                     .font(.custom(Style.fontName, size: 14))
                     .foregroundStyle(recordingAction == action ? Color.black : Color.white.opacity(0.82))
                     .lineLimit(1)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 30)
+                    .background(recordingAction == action ? Color.black.opacity(0.08) : Color.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .padding(.horizontal, 18)
             .frame(height: Style.rowHeight, alignment: .leading)

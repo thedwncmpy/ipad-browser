@@ -207,6 +207,16 @@ final class BrowserNavigationController {
         webView?.reload()
     }
 
+    func pauseMedia() {
+        webView?.evaluateJavaScript("""
+        (() => {
+            for (const media of document.querySelectorAll('audio, video')) {
+                media.pause();
+            }
+        })();
+        """)
+    }
+
     func find(_ text: String, completion: @escaping (BrowserFindStatus) -> Void) {
         guard let webView else { return }
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -125,7 +125,7 @@ struct BrowserShortcut: Codable, Equatable {
         if modifiers.contains(.alternate) { parts.append("Option") }
         if modifiers.contains(.control) { parts.append("Ctrl") }
         parts.append(displayInput)
-        return parts.joined(separator: " ")
+        return parts.joined(separator: " + ")
     }
 
     private var displayInput: String {
