@@ -30,6 +30,8 @@ enum BrowserKeyboardCommands {
         backSelector: Selector,
         forwardSelector: Selector,
         reloadSelector: Selector,
+        zoomInSelector: Selector,
+        zoomOutSelector: Selector,
         networkToolsSelector: Selector,
         shortcuts: [BrowserShortcutAction: BrowserShortcut]
     ) -> [UIKeyCommand] {
@@ -69,9 +71,23 @@ enum BrowserKeyboardCommands {
             return shortcuts[action, default: fallback].makeCommand(action: selector)
         }
 
-        return commands.map { command in
+        var keyCommands = commands.map { command in
             command.wantsPriorityOverSystemBehavior = true
             return command
         }
+
+        keyCommands.append(contentsOf: [
+            prioritizedCommand(input: "+", modifiers: [.command], action: zoomInSelector),
+            prioritizedCommand(input: "=", modifiers: [.command], action: zoomInSelector),
+            prioritizedCommand(input: "-", modifiers: [.command], action: zoomOutSelector)
+        ])
+
+        return keyCommands
+    }
+
+    private static func prioritizedCommand(input: String, modifiers: UIKeyModifierFlags, action: Selector) -> UIKeyCommand {
+        let command = UIKeyCommand(input: input, modifierFlags: modifiers, action: action)
+        command.wantsPriorityOverSystemBehavior = true
+        return command
     }
 }

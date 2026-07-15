@@ -31,6 +31,8 @@ final class BrowserWKWebView: WKWebView {
     var onGoBackShortcut: (() -> Void)?
     var onGoForwardShortcut: (() -> Void)?
     var onReloadShortcut: (() -> Void)?
+    var onZoomInShortcut: (() -> Void)?
+    var onZoomOutShortcut: (() -> Void)?
     var onToggleNetworkTools: (() -> Void)?
     var isSidebarNavigationEnabled = false
     var shortcuts = BrowserShortcutStore.defaults
@@ -60,6 +62,8 @@ final class BrowserWKWebView: WKWebView {
             backSelector: #selector(handleGoBack(_:)),
             forwardSelector: #selector(handleGoForward(_:)),
             reloadSelector: #selector(handleReload(_:)),
+            zoomInSelector: #selector(handleZoomIn(_:)),
+            zoomOutSelector: #selector(handleZoomOut(_:)),
             networkToolsSelector: #selector(handleNetworkToolsToggle(_:)),
             shortcuts: shortcuts
         )
@@ -178,6 +182,14 @@ final class BrowserWKWebView: WKWebView {
         onReloadShortcut?()
     }
 
+    @objc private func handleZoomIn(_ sender: UIKeyCommand) {
+        onZoomInShortcut?()
+    }
+
+    @objc private func handleZoomOut(_ sender: UIKeyCommand) {
+        onZoomOutShortcut?()
+    }
+
     @objc private func handleNetworkToolsToggle(_ sender: UIKeyCommand) {
         onToggleNetworkTools?()
     }
@@ -192,6 +204,12 @@ struct BrowserFindStatus: Equatable {
 
 @MainActor
 final class BrowserNavigationController {
+    private enum PageZoom {
+        static let step: CGFloat = 0.1
+        static let minimum: CGFloat = 0.5
+        static let maximum: CGFloat = 3.0
+    }
+
     private(set) var webView: BrowserWKWebView?
     private(set) var lastFindQuery = ""
 
@@ -211,6 +229,28 @@ final class BrowserNavigationController {
 
     func reload() {
         webView?.reload()
+    }
+
+    func load(_ url: URL) {
+        if url == BrowserHomePage.url {
+            webView?.loadHTMLString(BrowserHomePage.html(), baseURL: nil)
+        } else {
+            webView?.load(BrowserWebView.desktopRequest(for: url))
+        }
+    }
+
+    func zoomIn() {
+        adjustZoom(by: PageZoom.step)
+    }
+
+    func zoomOut() {
+        adjustZoom(by: -PageZoom.step)
+    }
+
+    private func adjustZoom(by delta: CGFloat) {
+        guard let webView else { return }
+        let nextZoom = min(PageZoom.maximum, max(PageZoom.minimum, webView.pageZoom + delta))
+        webView.pageZoom = nextZoom
     }
 
     func pauseMedia() {
@@ -1565,6 +1605,8 @@ struct BrowserWebView: UIViewRepresentable {
     let onGoBack: () -> Void
     let onGoForward: () -> Void
     let onReload: () -> Void
+    let onZoomIn: () -> Void
+    let onZoomOut: () -> Void
     let onPageTitleChange: () -> Void
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
 
@@ -1575,9 +1617,9 @@ struct BrowserWebView: UIViewRepresentable {
         return configuration
     }
 
-    private static let desktopSafariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+    fileprivate static let desktopSafariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
-    private static func desktopRequest(for url: URL) -> URLRequest {
+    fileprivate static func desktopRequest(for url: URL) -> URLRequest {
         var request = URLRequest(url: url)
         request.setValue(desktopSafariUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("?0", forHTTPHeaderField: "Sec-CH-UA-Mobile")
@@ -1667,6 +1709,8 @@ struct BrowserWebView: UIViewRepresentable {
         webView.onGoBackShortcut = onGoBack
         webView.onGoForwardShortcut = onGoForward
         webView.onReloadShortcut = onReload
+        webView.onZoomInShortcut = onZoomIn
+        webView.onZoomOutShortcut = onZoomOut
         webView.isSidebarNavigationEnabled = isSidebarNavigationEnabled
         webView.shortcuts = shortcuts
     }
@@ -1889,6 +1933,8 @@ extension BrowserWebView {
         onGoBack: {},
         onGoForward: {},
         onReload: {},
+        onZoomIn: {},
+        onZoomOut: {},
         onPageTitleChange: {},
         shortcuts: BrowserShortcutStore.defaults
     )

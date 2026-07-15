@@ -332,6 +332,8 @@ struct ContentView: View {
                         onGoBack: goBack,
                         onGoForward: goForward,
                         onReload: reload,
+                        onZoomIn: zoomIn,
+                        onZoomOut: zoomOut,
                         onPageTitleChange: refreshTabTitles,
                         shortcuts: shortcuts
                     )
@@ -373,6 +375,8 @@ struct ContentView: View {
                     onGoBack: goBack,
                     onGoForward: goForward,
                     onReload: reload,
+                    onZoomIn: zoomIn,
+                    onZoomOut: zoomOut,
                     onPageTitleChange: refreshTabTitles,
                     shortcuts: shortcuts
                 )
@@ -617,6 +621,8 @@ struct ContentView: View {
                 onGoBack: goBack,
                 onGoForward: goForward,
                 onReload: reload,
+                onZoomIn: zoomIn,
+                onZoomOut: zoomOut,
                 shortcuts: shortcuts,
                 focusRequestID: captureFocusRequestID == 0 ? nil : captureFocusRequestID
             )
@@ -997,7 +1003,11 @@ struct ContentView: View {
     private func submitSpotlight() {
         guard let activeTab else { return }
         navigate(rawInput: spotlightText, in: activeTab)
-        activeOverlay = .none
+        spotlightFocusRequestID = 0
+
+        withAnimation(.easeInOut(duration: 0.1)) {
+            activeOverlay = .none
+        }
     }
 
     private var sidebarURLAutocompleteText: String? {
@@ -1061,6 +1071,7 @@ struct ContentView: View {
         tab.currentPageURL = url
         tab.currentURLString = url.absoluteString
         tab.pageTitle = ""
+        tab.navigationController.load(url)
         tabRenderVersion += 1
         if tab.id == activeTab?.id {
             sidebarURLText = url.absoluteString
@@ -1113,6 +1124,7 @@ struct ContentView: View {
 
         if let rawInput, !rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             navigate(rawInput: rawInput, in: newTab)
+            refreshAfterStructuralChange()
         } else {
             refreshAfterStructuralChange()
         }
@@ -2052,6 +2064,14 @@ struct ContentView: View {
 
     private func reload() {
         activeTab?.navigationController.reload()
+    }
+
+    private func zoomIn() {
+        activeTab?.navigationController.zoomIn()
+    }
+
+    private func zoomOut() {
+        activeTab?.navigationController.zoomOut()
     }
 
     private func updateFindResults(_ text: String) {

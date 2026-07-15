@@ -35,6 +35,8 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onGoBack: () -> Void
     let onGoForward: () -> Void
     let onReload: () -> Void
+    let onZoomIn: () -> Void
+    let onZoomOut: () -> Void
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
     let focusRequestID: Int?
 
@@ -75,6 +77,8 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onGoBack = onGoBack
         controller.onGoForward = onGoForward
         controller.onReload = onReload
+        controller.onZoomIn = onZoomIn
+        controller.onZoomOut = onZoomOut
         controller.shortcuts = shortcuts
 
         if let focusRequestID, controller.lastAppliedFocusRequestID != focusRequestID {
@@ -111,6 +115,8 @@ final class KeyCaptureViewController: UIViewController {
     var onGoBack: (() -> Void)?
     var onGoForward: (() -> Void)?
     var onReload: (() -> Void)?
+    var onZoomIn: (() -> Void)?
+    var onZoomOut: (() -> Void)?
     var shortcuts = BrowserShortcutStore.defaults
     var lastAppliedFocusRequestID: Int?
 
@@ -141,6 +147,8 @@ final class KeyCaptureViewController: UIViewController {
             backSelector: #selector(goBack(_:)),
             forwardSelector: #selector(goForward(_:)),
             reloadSelector: #selector(reloadPage(_:)),
+            zoomInSelector: #selector(zoomIn(_:)),
+            zoomOutSelector: #selector(zoomOut(_:)),
             networkToolsSelector: #selector(toggleNetworkTools(_:)),
             shortcuts: shortcuts
         ) + [
@@ -276,5 +284,13 @@ final class KeyCaptureViewController: UIViewController {
 
     @objc private func reloadPage(_ sender: UIKeyCommand) {
         onReload?()
+    }
+
+    @objc private func zoomIn(_ sender: UIKeyCommand) {
+        onZoomIn?()
+    }
+
+    @objc private func zoomOut(_ sender: UIKeyCommand) {
+        onZoomOut?()
     }
 }
