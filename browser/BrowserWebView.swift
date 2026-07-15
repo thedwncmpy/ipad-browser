@@ -223,7 +223,7 @@ final class BrowserNavigationController {
         """)
     }
 
-    func toggleErudaDeveloperTools() {
+    func toggleErudaDeveloperTools(completion: ((Bool) -> Void)? = nil) {
         webView?.evaluateJavaScript("""
         (() => {
             const state = window.__browserDebugState || (window.__browserDebugState = {
@@ -234,17 +234,31 @@ final class BrowserNavigationController {
                 selectedTab: 'console',
                 sourceMode: 'tree',
                 selectedNodeID: '0',
-                expandedNodeIDs: ['0', '0.0', '0.1'],
+                expandedNodeIDs: ['0'],
                 selectedRequestID: null,
                 nextRequestID: 1,
                 networkListScrollTop: 0,
                 networkDetailsScrollTop: 0,
                 sourceBodyScrollTop: 0,
                 sourceTreeScrollTop: 0,
-                maxEntries: 300
+                sourceNodeLimit: 600,
+                renderScheduled: false,
+                networkRenderScheduled: false,
+                logVersion: 0,
+                requestVersion: 0,
+                sourceVersion: 0,
+                cache: {},
+                maxEntries: 120
             });
             if (state.sourceBodyScrollTop == null) state.sourceBodyScrollTop = 0;
             if (state.sourceTreeScrollTop == null) state.sourceTreeScrollTop = 0;
+            if (state.sourceNodeLimit == null || state.sourceNodeLimit > 600) state.sourceNodeLimit = 600;
+            if (state.renderScheduled == null) state.renderScheduled = false;
+            if (state.networkRenderScheduled == null) state.networkRenderScheduled = false;
+            if (state.logVersion == null) state.logVersion = 0;
+            if (state.requestVersion == null) state.requestVersion = 0;
+            if (state.sourceVersion == null) state.sourceVersion = 0;
+            if (!state.cache) state.cache = {};
 
             const safeString = (value) => {
                 try {
@@ -260,6 +274,23 @@ final class BrowserNavigationController {
                 if (items.length > state.maxEntries) {
                     items.splice(0, items.length - state.maxEntries);
                 }
+            };
+
+            const cachedValue = (name, key, producer) => {
+                const entry = state.cache[name];
+                if (entry && entry.key === key) return entry.value;
+                const value = producer();
+                state.cache[name] = { key, value };
+                return value;
+            };
+
+            const cachedValueFor = (name, key, producer, ttl = 1000) => {
+                const now = Date.now();
+                const entry = state.cache[name];
+                if (entry && entry.key === key && now - entry.time < ttl) return entry.value;
+                const value = producer();
+                state.cache[name] = { key, value, time: now };
+                return value;
             };
 
             const headersToObject = (headers) => {
@@ -291,6 +322,38 @@ final class BrowserNavigationController {
                 return safeString(body).slice(0, 5000);
             };
 
+            const isDrawerVisible = () => {
+                const drawer = document.getElementById('browser-debug-drawer');
+                return !!(drawer && !drawer.hidden && state.visible);
+            };
+
+            const scheduleRender = () => {
+                if (!isDrawerVisible() || state.renderScheduled) return;
+                state.renderScheduled = true;
+                setTimeout(() => {
+                    state.renderScheduled = false;
+                    if (isDrawerVisible() && window.__browserDebugRender) {
+                        window.__browserDebugRender();
+                    }
+                }, 250);
+            };
+
+            const scheduleNetworkRender = (changedRequestID = null, forceDetails = false) => {
+                if (!isDrawerVisible()) return;
+                if (state.selectedTab !== 'network') {
+                    scheduleRender();
+                    return;
+                }
+                if (state.networkRenderScheduled) return;
+                state.networkRenderScheduled = true;
+                setTimeout(() => {
+                    state.networkRenderScheduled = false;
+                    if (isDrawerVisible() && window.__browserDebugRenderNetwork) {
+                        window.__browserDebugRenderNetwork(changedRequestID, forceDetails);
+                    }
+                }, 250);
+            };
+
             const addRequest = (request) => {
                 const previousSelectedRequestID = state.selectedRequestID;
                 state.requests.push(request);
@@ -304,7 +367,8 @@ final class BrowserNavigationController {
                     state.selectedRequestID = state.requests.length ? state.requests[state.requests.length - 1].id : null;
                 }
 
-                window.__browserDebugRenderNetwork ? window.__browserDebugRenderNetwork() : (window.__browserDebugRender && window.__browserDebugRender());
+                state.requestVersion += 1;
+                scheduleNetworkRender();
             };
 
             if (!state.installed) {
@@ -319,7 +383,8 @@ final class BrowserNavigationController {
                             message: args.map(safeString).join(' ')
                         });
                         trimEntries(state.logs);
-                        window.__browserDebugRender && window.__browserDebugRender();
+                        state.logVersion += 1;
+                        scheduleRender();
                         return original.apply(this, args);
                     };
                 }
@@ -346,16 +411,10 @@ final class BrowserNavigationController {
                                 requestHeaders: headersToObject((init && init.headers) || (input && input.headers)),
                                 requestBody: bodyPreview(init && init.body),
                                 responseHeaders: headersToObject(response.headers),
-                                responseBody: ''
+                                responseBody: '',
+                                responseBodySkipped: true
                             };
                             addRequest(requestEntry);
-                            response.clone().text().then((text) => {
-                                requestEntry.responseBody = text.slice(0, 5000);
-                                window.__browserDebugRenderNetwork ? window.__browserDebugRenderNetwork(requestEntry.id) : (window.__browserDebugRender && window.__browserDebugRender());
-                            }).catch((error) => {
-                                requestEntry.responseBody = safeString(error);
-                                window.__browserDebugRenderNetwork ? window.__browserDebugRenderNetwork(requestEntry.id) : (window.__browserDebugRender && window.__browserDebugRender());
-                            });
                             return response;
                         } catch (error) {
                             addRequest({
@@ -405,10 +464,6 @@ final class BrowserNavigationController {
                         request.startedAtLabel = new Date().toLocaleTimeString();
                         request.requestBody = bodyPreview(arguments[0]);
                         this.addEventListener('loadend', () => {
-                            let responseBody = '';
-                            try {
-                                if (typeof this.responseText === 'string') responseBody = this.responseText.slice(0, 5000);
-                            } catch (_) {}
                             addRequest({
                                 id: request.id,
                                 type: 'xhr',
@@ -422,7 +477,8 @@ final class BrowserNavigationController {
                                 requestHeaders: request.requestHeaders,
                                 requestBody: request.requestBody,
                                 responseHeaders: { raw: this.getAllResponseHeaders() },
-                                responseBody
+                                responseBody: '',
+                                responseBodySkipped: true
                             });
                         });
                     }
@@ -436,7 +492,8 @@ final class BrowserNavigationController {
                         message: event.message || 'Unhandled error'
                     });
                     trimEntries(state.logs);
-                    window.__browserDebugRender && window.__browserDebugRender();
+                    state.logVersion += 1;
+                    scheduleRender();
                 });
 
                 window.addEventListener('unhandledrejection', (event) => {
@@ -446,7 +503,8 @@ final class BrowserNavigationController {
                         message: 'Unhandled promise rejection: ' + safeString(event.reason)
                     });
                     trimEntries(state.logs);
-                    window.__browserDebugRender && window.__browserDebugRender();
+                    state.logVersion += 1;
+                    scheduleRender();
                 });
             }
 
@@ -458,6 +516,7 @@ final class BrowserNavigationController {
                 style.id = 'browser-debug-style';
                 style.textContent = `
                     #browser-debug-drawer {
+                        --browser-debug-font: "LilexNFM-Regular", "Lilex Nerd Font Mono", "Lilex Nerd Font", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
                         position: fixed;
                         left: 50%;
                         top: 50%;
@@ -473,7 +532,7 @@ final class BrowserNavigationController {
                         border-radius: 10px;
                         box-shadow: none;
                         overflow: hidden;
-                        font: 14px "LilexNFM-Regular", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+                        font: 14px var(--browser-debug-font);
                     }
                     #browser-debug-drawer[hidden] { display: none !important; }
                     #browser-debug-drawer:focus { outline: none; }
@@ -545,13 +604,16 @@ final class BrowserNavigationController {
                     .browser-debug-log-warn { color: #ffd98a; }
                     .browser-debug-log-info { color: #9fd0ff; }
                     .browser-debug-request {
-                        grid-template-columns: 16px 64px 56px 76px minmax(0, 1fr);
-                        align-items: start;
+                        grid-template-columns: 14px 52px 48px 62px minmax(0, 1fr);
+                        align-items: center;
+                        gap: 10px;
                     }
                     .browser-debug-network-row {
-                        min-height: 72px;
-                        padding-top: 6px;
-                        padding-bottom: 6px;
+                        box-sizing: border-box;
+                        min-height: 0;
+                        height: 48px;
+                        font-size: 15px;
+                        padding: 7px 12px 3px;
                     }
                     .browser-debug-network-route {
                         display: block;
@@ -573,11 +635,12 @@ final class BrowserNavigationController {
                         overflow: auto;
                         overscroll-behavior: contain;
                         border-right: 1px solid rgba(255,255,255,0.1);
-                        padding: 6px 0;
+                        padding: 4px 0;
                     }
                     .browser-debug-network-item {
                         display: block;
                         width: calc(100% - 12px);
+                        height: 48px;
                         margin: 0 6px;
                         border: 0;
                         background: transparent;
@@ -600,9 +663,11 @@ final class BrowserNavigationController {
                         font-weight: 400;
                     }
                     .browser-debug-selected-marker {
+                        display: block;
                         color: #ffffff;
-                        font-size: 22px;
-                        padding-top: 4px;
+                        font-size: 18px;
+                        padding-top: 0;
+                        padding-bottom: 1px;
                         font-family: inherit;
                         font-weight: 400;
                         line-height: 1;
@@ -644,7 +709,7 @@ final class BrowserNavigationController {
                         min-height: 100%;
                         color: rgba(255,255,255,0.82);
                         background: transparent;
-                        font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+                        font: 13px var(--browser-debug-font);
                         line-height: 1.5;
                         tab-size: 2;
                         white-space: pre-wrap;
@@ -658,7 +723,7 @@ final class BrowserNavigationController {
                         min-height: 100%;
                         overflow: auto;
                         padding: 8px 0;
-                        font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+                        font: 13px var(--browser-debug-font);
                     }
                     .browser-debug-node {
                         display: flex;
@@ -694,7 +759,7 @@ final class BrowserNavigationController {
                         padding: 10px;
                         border-radius: 8px;
                         background: rgba(255,255,255,0.1);
-                        font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+                        font: 13px var(--browser-debug-font);
                         line-height: 1.5;
                         white-space: pre-wrap;
                         overflow-wrap: anywhere;
@@ -703,7 +768,7 @@ final class BrowserNavigationController {
                         #browser-debug-drawer { width: 96vw; height: calc(100vh - 32px); }
                         .browser-debug-bar { overflow-x: auto; }
                         .browser-debug-row, .browser-debug-request, .browser-debug-kv { grid-template-columns: 1fr; gap: 4px; }
-                        .browser-debug-network-row { min-height: 96px; }
+                        .browser-debug-network-row, .browser-debug-network-item { height: 76px; }
                         .browser-debug-network-shell { grid-template-columns: 1fr; }
                         .browser-debug-network-list { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.1); max-height: 50%; }
                         .browser-debug-source-tree { max-height: none; }
@@ -716,7 +781,7 @@ final class BrowserNavigationController {
                 root.setAttribute('role', 'dialog');
                 root.setAttribute('aria-label', 'Browser debug tools');
                 root.tabIndex = -1;
-                document.documentElement.appendChild(root);
+                (document.body || document.documentElement).appendChild(root);
                 return root;
             }
 
@@ -724,6 +789,15 @@ final class BrowserNavigationController {
                 if (!items.length) return `<div class="browser-debug-empty">${emptyText}</div>`;
                 return items.slice().reverse().map(rowRenderer).join('');
             };
+
+            const consoleRows = () => cachedValue('consoleRows', `${state.logVersion}:${state.logs.length}`, () => (
+                renderRows(state.logs, 'No console messages captured yet.', (entry) => `
+                    <div class="browser-debug-row browser-debug-log-${escapeHTML(entry.level)}">
+                        <span class="browser-debug-meta">${escapeHTML(entry.time)} ${escapeHTML(entry.level)}</span>
+                        <span>${escapeHTML(entry.message)}</span>
+                    </div>
+                `)
+            ));
 
             const escapeHTML = (value) => String(value).replace(/[&<>"']/g, (char) => ({
                 '&': '&amp;',
@@ -734,27 +808,41 @@ final class BrowserNavigationController {
             })[char]);
 
             const storageRows = () => {
-                const rows = [];
-                try {
-                    rows.push(['URL', location.href]);
-                    rows.push(['User agent', navigator.userAgent]);
-                    rows.push(['Viewport', `${innerWidth} x ${innerHeight}`]);
-                    rows.push(['Device pixel ratio', devicePixelRatio]);
-                    rows.push(['Local storage keys', localStorage.length]);
-                    rows.push(['Session storage keys', sessionStorage.length]);
-                    rows.push(['Cookies', document.cookie ? document.cookie.split(';').length : 0]);
-                    for (let index = 0; index < localStorage.length; index += 1) {
-                        const key = localStorage.key(index);
-                        rows.push([`localStorage.${key}`, localStorage.getItem(key)]);
+                const key = `${location.href}:${localStorage.length}:${sessionStorage.length}:${document.cookie.length}:${innerWidth}x${innerHeight}:${devicePixelRatio}`;
+                return cachedValueFor('storageRows', key, () => {
+                    const rows = [];
+                    const maxStorageItemsPerArea = 80;
+                    const maxStorageValueLength = 500;
+                    const storagePreview = (value) => {
+                        const text = value == null ? '' : String(value);
+                        const suffix = text.length > maxStorageValueLength ? ` ... (${text.length} chars total)` : '';
+                        return text.slice(0, maxStorageValueLength) + suffix;
+                    };
+                    const appendStorageArea = (label, storage) => {
+                        const count = storage.length;
+                        rows.push([`${label} keys`, count]);
+                        const visibleCount = Math.min(count, maxStorageItemsPerArea);
+                        for (let index = 0; index < visibleCount; index += 1) {
+                            const itemKey = storage.key(index);
+                            rows.push([`${label}.${itemKey}`, storagePreview(storage.getItem(itemKey))]);
+                        }
+                        if (count > visibleCount) {
+                            rows.push([`${label} omitted`, `${count - visibleCount} additional keys hidden for performance.`]);
+                        }
+                    };
+                    try {
+                        rows.push(['URL', location.href]);
+                        rows.push(['User agent', navigator.userAgent]);
+                        rows.push(['Viewport', `${innerWidth} x ${innerHeight}`]);
+                        rows.push(['Device pixel ratio', devicePixelRatio]);
+                        rows.push(['Cookies', document.cookie ? document.cookie.split(';').length : 0]);
+                        appendStorageArea('localStorage', localStorage);
+                        appendStorageArea('sessionStorage', sessionStorage);
+                    } catch (error) {
+                        rows.push(['Storage error', safeString(error)]);
                     }
-                    for (let index = 0; index < sessionStorage.length; index += 1) {
-                        const key = sessionStorage.key(index);
-                        rows.push([`sessionStorage.${key}`, sessionStorage.getItem(key)]);
-                    }
-                } catch (error) {
-                    rows.push(['Storage error', safeString(error)]);
-                }
-                return rows.map(([key, value]) => `<div class="browser-debug-kv"><strong>${escapeHTML(key)}</strong><span>${escapeHTML(value)}</span></div>`).join('');
+                    return rows.map(([key, value]) => `<div class="browser-debug-kv"><strong>${escapeHTML(key)}</strong><span>${escapeHTML(value)}</span></div>`).join('');
+                });
             };
 
             const objectRows = (object, emptyText = 'None captured.') => {
@@ -767,22 +855,22 @@ final class BrowserNavigationController {
 
             const networkDetails = (entry) => {
                 if (!entry) return '<div class="browser-debug-empty">Select a request.</div>';
-                return `
-                    <h3 class="browser-debug-network-title">${escapeHTML(entry.method)} ${escapeHTML(entry.url)}</h3>
-                    <div class="browser-debug-kv"><strong>Status</strong><span class="${entry.ok ? 'browser-debug-status-ok' : 'browser-debug-status-bad'}">${escapeHTML(entry.status)} ${escapeHTML(entry.statusText || '')}</span></div>
-                    <div class="browser-debug-kv"><strong>Type</strong><span>${escapeHTML(entry.type || 'request')}</span></div>
-                    <div class="browser-debug-kv"><strong>Started</strong><span>${escapeHTML(entry.startedAt || '')}</span></div>
-                    <div class="browser-debug-kv"><strong>Duration</strong><span>${escapeHTML(entry.duration)} ms</span></div>
-                    ${entry.error ? `<div class="browser-debug-kv"><strong>Error</strong><span>${escapeHTML(entry.error)}</span></div>` : ''}
-                    <h3 class="browser-debug-network-title">Request Headers</h3>
-                    ${objectRows(entry.requestHeaders)}
-                    <h3 class="browser-debug-network-title">Request Body</h3>
-                    ${entry.requestBody ? `<pre class="browser-debug-detail-code">${escapeHTML(entry.requestBody)}</pre>` : '<div class="browser-debug-empty">None captured.</div>'}
-                    <h3 class="browser-debug-network-title">Response Headers</h3>
-                    ${objectRows(entry.responseHeaders)}
-                    <h3 class="browser-debug-network-title">Response Body</h3>
-                    ${entry.responseBody ? `<pre class="browser-debug-detail-code">${escapeHTML(entry.responseBody)}</pre>` : '<div class="browser-debug-empty">None captured yet.</div>'}
-                `;
+                return cachedValue(`networkDetails:${entry.id}`, `${state.requestVersion}:${entry.id}:${entry.responseBody ? entry.responseBody.length : 0}`, () => `
+                        <h3 class="browser-debug-network-title">${escapeHTML(entry.method)} ${escapeHTML(entry.url)}</h3>
+                        <div class="browser-debug-kv"><strong>Status</strong><span class="${entry.ok ? 'browser-debug-status-ok' : 'browser-debug-status-bad'}">${escapeHTML(entry.status)} ${escapeHTML(entry.statusText || '')}</span></div>
+                        <div class="browser-debug-kv"><strong>Type</strong><span>${escapeHTML(entry.type || 'request')}</span></div>
+                        <div class="browser-debug-kv"><strong>Started</strong><span>${escapeHTML(entry.startedAt || '')}</span></div>
+                        <div class="browser-debug-kv"><strong>Duration</strong><span>${escapeHTML(entry.duration)} ms</span></div>
+                        ${entry.error ? `<div class="browser-debug-kv"><strong>Error</strong><span>${escapeHTML(entry.error)}</span></div>` : ''}
+                        <h3 class="browser-debug-network-title">Request Headers</h3>
+                        ${objectRows(entry.requestHeaders)}
+                        <h3 class="browser-debug-network-title">Request Body</h3>
+                        ${entry.requestBody ? `<pre class="browser-debug-detail-code">${escapeHTML(entry.requestBody)}</pre>` : '<div class="browser-debug-empty">None captured.</div>'}
+                        <h3 class="browser-debug-network-title">Response Headers</h3>
+                        ${objectRows(entry.responseHeaders)}
+                        <h3 class="browser-debug-network-title">Response Body</h3>
+                        ${entry.responseBody ? `<pre class="browser-debug-detail-code">${escapeHTML(entry.responseBody)}</pre>` : `<div class="browser-debug-empty">${entry.responseBodySkipped ? 'Response body capture disabled for performance.' : 'None captured yet.'}</div>`}
+                    `);
             };
 
             const networkPanel = () => {
@@ -800,17 +888,19 @@ final class BrowserNavigationController {
                 `;
             };
 
-            const networkRows = () => state.requests.slice().reverse().map((entry) => `
-                <button class="browser-debug-network-item" data-request-id="${escapeHTML(entry.id)}" aria-selected="${entry.id === state.selectedRequestID}">
-                    <div class="browser-debug-row browser-debug-request browser-debug-network-row">
-                        <span class="browser-debug-selected-marker">${entry.id === state.selectedRequestID ? '*' : ''}</span>
-                        <strong class="browser-debug-method">${escapeHTML(entry.method)}</strong>
-                        <span class="${entry.ok ? 'browser-debug-status-ok' : 'browser-debug-status-bad'}">${escapeHTML(entry.status)}</span>
-                        <span class="browser-debug-meta">${escapeHTML(entry.duration)} ms</span>
-                        <span class="browser-debug-network-route">${escapeHTML(entry.url)}${entry.error ? `<br>${escapeHTML(entry.error)}` : ''}</span>
-                    </div>
-                </button>
-            `).join('');
+            const networkRows = () => cachedValue('networkRows', `${state.requestVersion}:${state.selectedRequestID}:${state.requests.length}`, () => (
+                state.requests.slice().reverse().map((entry) => `
+                    <button class="browser-debug-network-item" data-request-id="${escapeHTML(entry.id)}" aria-selected="${entry.id === state.selectedRequestID}">
+                        <div class="browser-debug-row browser-debug-request browser-debug-network-row">
+                            <span class="browser-debug-selected-marker">${entry.id === state.selectedRequestID ? '*' : ''}</span>
+                            <strong class="browser-debug-method">${escapeHTML(entry.method)}</strong>
+                            <span class="${entry.ok ? 'browser-debug-status-ok' : 'browser-debug-status-bad'}">${escapeHTML(entry.status)}</span>
+                            <span class="browser-debug-meta">${escapeHTML(entry.duration)} ms</span>
+                            <span class="browser-debug-network-route">${escapeHTML(entry.url)}${entry.error ? `<br>${escapeHTML(entry.error)}` : ''}</span>
+                        </div>
+                    </button>
+                `).join('')
+            ));
 
             const selectNetworkRequest = (requestID, resetDetailsScroll = true) => {
                 state.selectedRequestID = Number(requestID);
@@ -843,15 +933,40 @@ final class BrowserNavigationController {
                 });
             };
 
-            const assignNodeIDs = () => {
-                const nodeByID = new Map();
-                const visit = (node, id) => {
-                    node.__browserDebugNodeID = id;
-                    nodeByID.set(id, node);
-                    Array.from(node.childNodes).forEach((child, index) => visit(child, `${id}.${index}`));
-                };
-                visit(document.documentElement, '0');
-                return nodeByID;
+            const inspectableChildren = (node) => {
+                if (!node || !node.childNodes) return [];
+                if (node.nodeType === Node.ELEMENT_NODE && ['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(node.tagName)) return [];
+
+                const children = [];
+                for (const child of node.childNodes) {
+                    if (child.nodeType === Node.ELEMENT_NODE) {
+                        if (child.id === 'browser-debug-drawer' || child.id === 'browser-debug-style') continue;
+                        children.push(child);
+                    } else if (child.nodeType === Node.COMMENT_NODE) {
+                        children.push(child);
+                    } else if (child.nodeType === Node.TEXT_NODE && (child.textContent || '').trim()) {
+                        children.push(child);
+                    }
+                    if (children.length >= 200) break;
+                }
+                return children;
+            };
+
+            const sourceRootNode = () => document.body || document.documentElement;
+
+            const nodeForID = (id) => {
+                if (id === '0') return sourceRootNode();
+
+                let node = sourceRootNode();
+                const parts = String(id).split('.').slice(1);
+                for (const part of parts) {
+                    const index = Number(part);
+                    if (!Number.isInteger(index) || index < 0) return null;
+                    const children = inspectableChildren(node);
+                    node = children[index];
+                    if (!node) return null;
+                }
+                return node;
             };
 
             const nodeLabel = (node) => {
@@ -872,17 +987,15 @@ final class BrowserNavigationController {
                 return `<span class="browser-debug-token-muted">&lt;</span><span class="browser-debug-token-tag">${escapeHTML(node.tagName.toLowerCase())}</span>${attrs}${extra}<span class="browser-debug-token-muted">&gt;</span>`;
             };
 
-            const inspectableChildren = (node) => Array.from(node.childNodes).filter((child) => (
-                child.nodeType === Node.ELEMENT_NODE ||
-                child.nodeType === Node.COMMENT_NODE ||
-                (child.nodeType === Node.TEXT_NODE && (child.textContent || '').trim())
-            ));
-
-            const sourceTreeRows = (node, depth) => {
+            const sourceTreeRows = (node, id, depth, budget) => {
+                if (budget.count >= state.sourceNodeLimit) {
+                    budget.limitReached = true;
+                    return '';
+                }
                 if (![Node.ELEMENT_NODE, Node.TEXT_NODE, Node.COMMENT_NODE].includes(node.nodeType)) return '';
                 if (node.nodeType === Node.TEXT_NODE && !(node.textContent || '').trim()) return '';
 
-                const id = node.__browserDebugNodeID;
+                budget.count += 1;
                 const children = inspectableChildren(node);
                 const isExpanded = state.expandedNodeIDs.includes(id);
                 const hasChildren = children.length > 0;
@@ -893,28 +1006,52 @@ final class BrowserNavigationController {
                     </button>
                 `;
                 if (hasChildren && isExpanded) {
-                    html += children.map((child) => sourceTreeRows(child, depth + 1)).join('');
+                    html += children.map((child, index) => sourceTreeRows(child, `${id}.${index}`, depth + 1, budget)).join('');
                 }
                 return html;
             };
 
             const sourcePanel = () => {
-                const nodeByID = assignNodeIDs();
-                if (!nodeByID.has(state.selectedNodeID)) state.selectedNodeID = '0';
-
+                const sourceKey = `${state.sourceVersion}:${state.sourceMode}:${state.expandedNodeIDs.join(',')}:${location.href}`;
+                return cachedValue('sourcePanel', sourceKey, () => {
                 if (state.sourceMode === 'raw') {
                     const doctype = document.doctype
                         ? `<!DOCTYPE ${document.doctype.name}${document.doctype.publicId ? ` PUBLIC "${document.doctype.publicId}"` : ''}${document.doctype.systemId ? ` "${document.doctype.systemId}"` : ''}>\\n`
                         : '';
-                    return `<pre class="browser-debug-source">${escapeHTML(doctype + document.documentElement.outerHTML)}</pre>`;
+                    const html = doctype + document.documentElement.outerHTML;
+                    const limit = 200000;
+                    const truncated = html.length > limit;
+                    return `<pre class="browser-debug-source">${escapeHTML(html.slice(0, limit))}${truncated ? `\\n\\n&lt;!-- Raw source truncated at ${limit} characters for performance. --&gt;` : ''}</pre>`;
                 }
+
+                state.expandedNodeIDs = state.expandedNodeIDs.filter((id) => !!nodeForID(id));
+                if (!state.expandedNodeIDs.includes('0')) state.expandedNodeIDs.unshift('0');
+                if (!nodeForID(state.selectedNodeID)) state.selectedNodeID = '0';
+                const budget = { count: 0, limitReached: false };
 
                 return `
                     <div class="browser-debug-source-shell">
-                        <div class="browser-debug-source-tree">${sourceTreeRows(document.documentElement, 0)}</div>
+                        <div class="browser-debug-source-tree">
+                            ${sourceTreeRows(sourceRootNode(), '0', 0, budget)}
+                            ${budget.limitReached ? `<div class="browser-debug-empty">Showing first ${escapeHTML(state.sourceNodeLimit)} visible nodes. Expand fewer branches to inspect deeper nodes.</div>` : ''}
+                        </div>
                     </div>
                 `;
+                });
             };
+
+            const environmentRows = () => cachedValueFor('environmentRows', `${location.href}:${document.title}:${document.readyState}:${navigator.onLine}:${innerWidth}x${innerHeight}`, () => (
+                [
+                    ['Location', location.href],
+                    ['Title', document.title || '(untitled)'],
+                    ['Ready state', document.readyState],
+                    ['Language', navigator.language],
+                    ['Online', navigator.onLine],
+                    ['Platform', navigator.platform],
+                    ['Screen', `${screen.width} x ${screen.height}`],
+                    ['Timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown']
+                ].map(([key, value]) => `<div class="browser-debug-kv"><strong>${escapeHTML(key)}</strong><span>${escapeHTML(value)}</span></div>`).join('')
+            ));
 
             window.__browserDebugRenderNetwork = (changedRequestID = null, forceDetails = false) => {
                 const root = document.getElementById('browser-debug-drawer');
@@ -950,13 +1087,21 @@ final class BrowserNavigationController {
                 const selectedBefore = details.dataset.requestId ? Number(details.dataset.requestId) : null;
                 const selected = state.requests.find((entry) => entry.id === state.selectedRequestID);
 
-                list.innerHTML = networkRows();
+                const nextRows = networkRows();
+                if (list.__browserDebugHTML !== nextRows) {
+                    list.__browserDebugHTML = nextRows;
+                    list.innerHTML = nextRows;
+                    bindNetworkRequestEvents(list);
+                }
                 list.scrollTop = wasListAtTop ? 0 : previousListScrollTop + Math.max(0, list.scrollHeight - previousListScrollHeight);
                 state.networkListScrollTop = list.scrollTop;
-                bindNetworkRequestEvents(list);
 
                 if (forceDetails || selectedBefore !== state.selectedRequestID || changedRequestID === state.selectedRequestID) {
-                    details.innerHTML = networkDetails(selected);
+                    const nextDetails = networkDetails(selected);
+                    if (details.__browserDebugHTML !== nextDetails) {
+                        details.__browserDebugHTML = nextDetails;
+                        details.innerHTML = nextDetails;
+                    }
                     details.dataset.requestId = String(state.selectedRequestID);
                     details.scrollTop = forceDetails ? state.networkDetailsScrollTop : previousDetailsScrollTop;
                     state.networkDetailsScrollTop = details.scrollTop;
@@ -984,12 +1129,7 @@ final class BrowserNavigationController {
 
                 let body = '';
                 if (state.selectedTab === 'console') {
-                    body = renderRows(state.logs, 'No console messages captured yet.', (entry) => `
-                        <div class="browser-debug-row browser-debug-log-${escapeHTML(entry.level)}">
-                            <span class="browser-debug-meta">${escapeHTML(entry.time)} ${escapeHTML(entry.level)}</span>
-                            <span>${escapeHTML(entry.message)}</span>
-                        </div>
-                    `);
+                    body = consoleRows();
                 } else if (state.selectedTab === 'network') {
                     body = networkPanel();
                 } else if (state.selectedTab === 'sources') {
@@ -997,19 +1137,10 @@ final class BrowserNavigationController {
                 } else if (state.selectedTab === 'storage') {
                     body = storageRows();
                 } else {
-                    body = [
-                        ['Location', location.href],
-                        ['Title', document.title || '(untitled)'],
-                        ['Ready state', document.readyState],
-                        ['Language', navigator.language],
-                        ['Online', navigator.onLine],
-                        ['Platform', navigator.platform],
-                        ['Screen', `${screen.width} x ${screen.height}`],
-                        ['Timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown']
-                    ].map(([key, value]) => `<div class="browser-debug-kv"><strong>${escapeHTML(key)}</strong><span>${escapeHTML(value)}</span></div>`).join('');
+                    body = environmentRows();
                 }
 
-                root.innerHTML = `
+                const nextHTML = `
                     <div class="browser-debug-bar">
                         <span class="browser-debug-title">Debug</span>
                         ${tabs.map(([id, label]) => `<button class="browser-debug-tab" data-tab="${id}" aria-selected="${state.selectedTab === id}">${escapeHTML(label)}</button>`).join('')}
@@ -1020,23 +1151,39 @@ final class BrowserNavigationController {
                     </div>
                     <div class="browser-debug-body ${state.selectedTab === 'network' ? 'browser-debug-body-network' : ''}">${body}</div>
                 `;
+                if (root.__browserDebugHTML === nextHTML) return;
+                root.__browserDebugHTML = nextHTML;
+                root.innerHTML = nextHTML;
 
                 root.querySelectorAll('[data-tab]').forEach((button) => {
                     button.addEventListener('click', () => {
                         state.selectedTab = button.dataset.tab;
                         window.__browserDebugRender();
+                        requestAnimationFrame(() => {
+                            const root = document.getElementById('browser-debug-drawer');
+                            root && root.focus();
+                        });
                     });
                 });
+                const focusDebugRoot = () => {
+                    requestAnimationFrame(() => {
+                        const root = document.getElementById('browser-debug-drawer');
+                        root && root.focus();
+                    });
+                };
+                const scrollDebugBody = (delta) => {
+                    const body = root.querySelector('.browser-debug-body');
+                    if (!body) return;
+                    body.scrollTop += delta * 56;
+                    if (state.selectedTab === 'sources') state.sourceBodyScrollTop = body.scrollTop;
+                };
                 const moveDebugTab = (delta) => {
                     const tabIDs = tabs.map(([id]) => id);
                     const currentIndex = Math.max(0, tabIDs.indexOf(state.selectedTab));
                     const nextIndex = (currentIndex + delta + tabIDs.length) % tabIDs.length;
                     state.selectedTab = tabIDs[nextIndex];
                     window.__browserDebugRender();
-                    requestAnimationFrame(() => {
-                        const root = document.getElementById('browser-debug-drawer');
-                        root && root.focus();
-                    });
+                    focusDebugRoot();
                 };
                 root.onkeydown = (event) => {
                     if (event.key === 'h' || event.key === 'ArrowLeft') {
@@ -1045,22 +1192,41 @@ final class BrowserNavigationController {
                     } else if (event.key === 'l' || event.key === 'ArrowRight') {
                         event.preventDefault();
                         moveDebugTab(1);
-                    } else if (state.selectedTab === 'network' && (event.key === 'j' || event.key === 'ArrowDown')) {
+                    } else if (event.key === 'j' || event.key === 'ArrowDown') {
                         event.preventDefault();
-                        moveNetworkSelection(1);
-                    } else if (state.selectedTab === 'network' && (event.key === 'k' || event.key === 'ArrowUp')) {
+                        if (state.selectedTab !== 'network' || !moveNetworkSelection(1)) {
+                            scrollDebugBody(1);
+                            focusDebugRoot();
+                        }
+                    } else if (event.key === 'k' || event.key === 'ArrowUp') {
                         event.preventDefault();
-                        moveNetworkSelection(-1);
+                        if (state.selectedTab !== 'network' || !moveNetworkSelection(-1)) {
+                            scrollDebugBody(-1);
+                            focusDebugRoot();
+                        }
                     }
                 };
                 root.querySelector('[data-action="clear"]').addEventListener('click', () => {
-                    if (state.selectedTab === 'console') state.logs.length = 0;
-                    if (state.selectedTab === 'network') state.requests.length = 0;
+                    if (state.selectedTab === 'console') {
+                        state.logs.length = 0;
+                        state.logVersion += 1;
+                    }
+                    if (state.selectedTab === 'network') {
+                        state.requests.length = 0;
+                        state.selectedRequestID = null;
+                        state.requestVersion += 1;
+                    }
+                    if (state.selectedTab === 'sources') {
+                        state.sourceVersion += 1;
+                    }
                     window.__browserDebugRender();
+                    focusDebugRoot();
                 });
                 root.querySelector('[data-action="source-mode"]')?.addEventListener('click', () => {
                     state.sourceMode = state.sourceMode === 'tree' ? 'raw' : 'tree';
+                    state.sourceVersion += 1;
                     window.__browserDebugRender();
+                    focusDebugRoot();
                 });
                 root.querySelectorAll('[data-node-id]').forEach((button) => {
                     button.addEventListener('click', (event) => {
@@ -1075,6 +1241,7 @@ final class BrowserNavigationController {
                         } else {
                             state.expandedNodeIDs.push(id);
                         }
+                        state.sourceVersion += 1;
                         window.__browserDebugRender();
                     });
                 });
@@ -1133,8 +1300,15 @@ final class BrowserNavigationController {
                 window.__browserDebugRender();
                 requestAnimationFrame(() => drawer.focus());
             }
+            return state.visible;
         })();
-        """)
+        """) { result, error in
+            if error != nil {
+                completion?(false)
+                return
+            }
+            completion?(result as? Bool ?? false)
+        }
     }
 
     func hideErudaDeveloperTools() {

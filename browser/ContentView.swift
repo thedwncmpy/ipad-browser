@@ -168,13 +168,18 @@ struct ContentView: View {
     @State private var browserFocusRequestID = 0
     @State private var captureFocusRequestID = 0
     @State private var isNetworkToolsVisible = false
+    @State private var devToolsUnavailableMessageID = 0
     @State private var keyboardFocusTarget: KeyboardFocusTarget = .browser
     @State private var favorites: [BrowserFavorite] = []
     @State private var shortcuts: [BrowserShortcutAction: BrowserShortcut] = BrowserShortcutStore.load()
     @State private var tabRenderVersion = 0
+    @State private var committedWorkspaceID: UUID? = nil
+    @State private var committedTabID: UUID? = nil
+    @State private var tabSelectionCommitGeneration = 0
     @State private var lastShortcutAction: ShortcutAction?
     @State private var lastShortcutTimestamp = Date.distantPast
     private let shortcutCoalescingInterval: TimeInterval = 0.08
+    private let tabSelectionCommitDelay: TimeInterval = 0.12
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -185,12 +190,14 @@ struct ContentView: View {
             commandPalette
             findOverlay
             settingsOverlay
+            devToolsUnavailableNotice
             keyboardCaptureLayer
         }
         .onAppear {
             if selectedWorkspaceID == nil {
                 selectedWorkspaceID = workspaces.first?.id
             }
+            commitCurrentSelection(clearFind: false)
             favorites = loadFavorites()
             syncSidebarURLText()
             restoreDefaultKeyboardFocus()
@@ -202,15 +209,14 @@ struct ContentView: View {
         }
         .onChange(of: selectedWorkspaceID) { _, _ in
             ensureWorkspaceSelectionIntegrity()
+            commitCurrentSelection(clearFind: true)
             syncSidebarURLText()
-            clearFindState()
             if activeOverlay == .none {
                 restoreDefaultKeyboardFocus()
             }
         }
         .onChange(of: activeWorkspace?.selectedTabID) { _, _ in
             syncSidebarURLText()
-            clearFindState()
             if activeOverlay == .none {
                 restoreDefaultKeyboardFocus()
             }
@@ -244,6 +250,17 @@ struct ContentView: View {
         guard let workspace = activeWorkspace else { return nil }
         guard let selectedTabID = workspace.selectedTabID else { return workspace.tabs.isEmpty ? nil : 0 }
         return workspace.tabs.firstIndex(where: { $0.id == selectedTabID })
+    }
+
+    private var committedWorkspace: BrowserWorkspace? {
+        guard let committedWorkspaceID else { return activeWorkspace }
+        return workspaces.first(where: { $0.id == committedWorkspaceID }) ?? activeWorkspace
+    }
+
+    private var committedTab: BrowserTab? {
+        guard let workspace = committedWorkspace else { return activeTab }
+        guard let committedTabID else { return selectedTab(in: workspace) }
+        return workspace.tabs.first(where: { $0.id == committedTabID }) ?? selectedTab(in: workspace)
     }
 
     private var sidebarItems: [SidebarTabItem] {
@@ -377,6 +394,7 @@ struct ContentView: View {
                 workspaceCount: workspaces.count,
                 selectedWorkspaceIndex: activeWorkspaceIndex ?? 0,
                 urlFieldFocusRequestID: sidebarURLFocusRequestID == 0 ? nil : sidebarURLFocusRequestID,
+                autocompleteText: sidebarURLAutocompleteText,
                 onSelectTab: selectTab,
                 onHoverTab: nil,
                 onCloseTab: closeTab,
@@ -389,6 +407,7 @@ struct ContentView: View {
                 onNetworkToolsShortcut: toggleNetworkTools,
                 onNextItemShortcut: nil,
                 onPreviousItemShortcut: nil,
+                onCompleteURLShortcut: completeSidebarURLAlias,
                 onDismiss: dismissSpotlight,
                 onSubmit: submitSidebarURL,
                 shortcuts: shortcuts
@@ -426,6 +445,7 @@ struct ContentView: View {
                 onNetworkToolsShortcut: toggleNetworkTools,
                 onNextItemShortcut: { moveHistorySelection(by: 1) },
                 onPreviousItemShortcut: { moveHistorySelection(by: -1) },
+                onCompleteURLShortcut: nil,
                 onDismiss: dismissSpotlight,
                 onSubmit: submitHistorySearch,
                 shortcuts: shortcuts
@@ -542,6 +562,32 @@ struct ContentView: View {
     }
 
     @ViewBuilder
+    private var devToolsUnavailableNotice: some View {
+        if devToolsUnavailableMessageID > 0 {
+            VStack {
+                Text("Dev tools are not available")
+                    .font(.custom("LilexNFM-Regular", size: 14))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .frame(height: 40)
+                    .background(Color.black.opacity(0.82))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.top, 18)
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+            .transition(.opacity)
+            .zIndex(3)
+        }
+    }
+
+    @ViewBuilder
     private var keyboardCaptureLayer: some View {
         if activeOverlay == .sidebar || activeOverlay == .history || (activeOverlay == .none && keyboardFocusTarget == .capture) {
             KeyboardCaptureView(
@@ -614,7 +660,7 @@ struct ContentView: View {
     }
 
     private func isVisible(tab: BrowserTab, in workspace: BrowserWorkspace) -> Bool {
-        workspace.id == activeWorkspace?.id && tab.id == activeTab?.id
+        workspace.id == committedWorkspace?.id && tab.id == committedTab?.id
     }
 
     private func browserFocusRequestID(for tab: BrowserTab, in workspace: BrowserWorkspace) -> Int? {
@@ -752,6 +798,7 @@ struct ContentView: View {
     private func selectTab(_ id: UUID, in workspace: BrowserWorkspace?) {
         guard let workspace else { return }
         workspace.selectedTabID = id
+        commitCurrentSelection(clearFind: true)
         refreshAfterSelectionChange()
     }
 
@@ -953,10 +1000,25 @@ struct ContentView: View {
         activeOverlay = .none
     }
 
+    private var sidebarURLAutocompleteText: String? {
+        favoriteAliasAutocompleteText(for: sidebarURLText)
+    }
+
     private var spotlightAutocompleteText: String? {
-        let query = spotlightText.trimmingCharacters(in: .whitespacesAndNewlines)
+        favoriteAliasAutocompleteText(for: spotlightText)
+    }
+
+    private func favoriteAliasAutocompleteText(for rawText: String) -> String? {
+        let query = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let favorite = bestFavoriteAliasCompletion(for: query) else { return nil }
         return autocompleteSuffix(for: query, completion: favorite.alias)
+    }
+
+    private func completeSidebarURLAlias() {
+        let query = sidebarURLText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let favorite = bestFavoriteAliasCompletion(for: query) else { return }
+        sidebarURLText = favorite.alias
+        requestKeyboardFocus(.sidebarURL)
     }
 
     private func submitHistorySearch() {
@@ -1064,6 +1126,7 @@ struct ContentView: View {
         let currentIndex = activeWorkspaceIndex ?? 0
         let nextIndex = (currentIndex + offset + workspaces.count) % workspaces.count
         selectedWorkspaceID = workspaces[nextIndex].id
+        commitCurrentSelection(clearFind: true)
         refreshAfterSelectionChange()
     }
 
@@ -1073,7 +1136,8 @@ struct ContentView: View {
         let currentIndex = activeTabIndex ?? 0
         let nextIndex = (currentIndex + offset + workspace.tabs.count) % workspace.tabs.count
         workspace.selectedTabID = workspace.tabs[nextIndex].id
-        refreshAfterSelectionChange()
+        refreshAfterDeferredSelectionChange()
+        scheduleTabSelectionCommit()
     }
 
     private func matchingCommand(for query: String) -> BrowserCommand? {
@@ -1595,15 +1659,39 @@ struct ContentView: View {
     }
 
     private func refreshAfterStructuralChange() {
+        commitCurrentSelection(clearFind: true)
         tabRenderVersion += 1
         syncSidebarURLText()
-        clearFindState()
     }
 
     private func refreshAfterSelectionChange() {
         tabRenderVersion += 1
         syncSidebarURLText()
-        clearFindState()
+    }
+
+    private func refreshAfterDeferredSelectionChange() {
+        tabRenderVersion += 1
+        syncSidebarURLText()
+    }
+
+    private func scheduleTabSelectionCommit() {
+        tabSelectionCommitGeneration += 1
+        let generation = tabSelectionCommitGeneration
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + tabSelectionCommitDelay) {
+            guard generation == tabSelectionCommitGeneration else { return }
+            commitCurrentSelection(clearFind: true)
+            refreshAfterSelectionChange()
+        }
+    }
+
+    private func commitCurrentSelection(clearFind: Bool) {
+        tabSelectionCommitGeneration += 1
+        committedWorkspaceID = activeWorkspace?.id
+        committedTabID = activeTab?.id
+        if clearFind {
+            clearFindState()
+        }
     }
 
     private func refreshTabTitles() {
@@ -1667,6 +1755,12 @@ struct ContentView: View {
     private func toggleSpotlight() {
         guard canHandleShortcut(.spotlight) else { return }
         guard let activeTab else { return }
+
+        if activeOverlay == .sidebar {
+            syncSidebarURLText()
+            requestKeyboardFocus(.sidebarURL)
+            return
+        }
 
         let shouldClearFind = activeOverlay == .find || !findText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || findStatus != .empty
 
@@ -1885,14 +1979,31 @@ struct ContentView: View {
         }
 
         closeActiveOverlayForExclusiveSurface()
-        activeTab?.navigationController.toggleErudaDeveloperTools()
-        isNetworkToolsVisible = true
+        activeTab?.navigationController.toggleErudaDeveloperTools { isVisible in
+            isNetworkToolsVisible = isVisible
+            if !isVisible {
+                activeTab?.navigationController.hideErudaDeveloperTools()
+                showDevToolsUnavailableNotice()
+            }
+        }
     }
 
     private func closeNetworkTools() {
         guard isNetworkToolsVisible else { return }
         activeTab?.navigationController.hideErudaDeveloperTools()
         isNetworkToolsVisible = false
+    }
+
+    private func showDevToolsUnavailableNotice() {
+        devToolsUnavailableMessageID += 1
+        let messageID = devToolsUnavailableMessageID
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            guard devToolsUnavailableMessageID == messageID else { return }
+            withAnimation(.easeInOut(duration: 0.12)) {
+                devToolsUnavailableMessageID = 0
+            }
+        }
     }
 
     private func closeActiveOverlayForExclusiveSurface() {

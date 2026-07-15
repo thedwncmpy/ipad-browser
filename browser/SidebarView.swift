@@ -43,6 +43,7 @@ struct SidebarView: View {
     let workspaceCount: Int
     let selectedWorkspaceIndex: Int
     let urlFieldFocusRequestID: Int?
+    var autocompleteText: String? = nil
     var placeholder = "https://"
     var showsCurrentPageFavicon = true
     var showsWorkspaceIndicator = true
@@ -60,6 +61,7 @@ struct SidebarView: View {
     let onNetworkToolsShortcut: (() -> Void)?
     let onNextItemShortcut: (() -> Void)?
     let onPreviousItemShortcut: (() -> Void)?
+    let onCompleteURLShortcut: (() -> Void)?
     let onDismiss: (() -> Void)?
     let onSubmit: () -> Void
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
@@ -104,6 +106,7 @@ struct SidebarView: View {
                 fontName: Style.fontName,
                 fontSize: Style.valueFontSize,
                 textColor: .white,
+                autocompleteText: autocompleteText,
                 focusRequestID: urlFieldFocusRequestID,
                 onSubmit: onSubmit,
                 onTextChange: nil,
@@ -221,7 +224,7 @@ struct SidebarView: View {
         case .previousOption:
             onPreviousItemShortcut?()
         case .completeOption:
-            break
+            onCompleteURLShortcut?()
         case .submitOption:
             onSubmit()
         case .dismiss:
@@ -258,6 +261,7 @@ struct SidebarView: View {
         onNetworkToolsShortcut: nil,
         onNextItemShortcut: nil,
         onPreviousItemShortcut: nil,
+        onCompleteURLShortcut: nil,
         onDismiss: nil,
         onSubmit: {},
         shortcuts: BrowserShortcutStore.defaults
