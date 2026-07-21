@@ -204,7 +204,7 @@ struct BrowserFindStatus: Equatable {
 
 @MainActor
 final class BrowserNavigationController {
-    private enum PageZoom {
+    private enum PageScale {
         static let step: CGFloat = 0.1
         static let minimum: CGFloat = 0.5
         static let maximum: CGFloat = 3.0
@@ -212,9 +212,11 @@ final class BrowserNavigationController {
 
     private(set) var webView: BrowserWKWebView?
     private(set) var lastFindQuery = ""
+    private var pageScale: CGFloat = 1.0
 
     func attach(webView: BrowserWKWebView) {
         self.webView = webView
+        applyPageScale()
     }
 
     func goBack() {
@@ -240,17 +242,40 @@ final class BrowserNavigationController {
     }
 
     func zoomIn() {
-        adjustZoom(by: PageZoom.step)
+        adjustPageScale(by: PageScale.step)
     }
 
     func zoomOut() {
-        adjustZoom(by: -PageZoom.step)
+        adjustPageScale(by: -PageScale.step)
     }
 
-    private func adjustZoom(by delta: CGFloat) {
+    private func adjustPageScale(by delta: CGFloat) {
+        pageScale = min(PageScale.maximum, max(PageScale.minimum, pageScale + delta))
+        applyPageScale()
+    }
+
+    func applyPageScale() {
         guard let webView else { return }
-        let nextZoom = min(PageZoom.maximum, max(PageZoom.minimum, webView.pageZoom + delta))
-        webView.pageZoom = nextZoom
+        webView.pageZoom = 1
+        webView.evaluateJavaScript("""
+        (() => {
+            const scale = '\(pageScale)';
+            const root = document.documentElement;
+            const body = document.body;
+            if (!root || !body) return;
+
+            root.style.zoom = '';
+            root.style.setProperty('--browser-page-scale', scale);
+
+            for (const child of Array.from(body.children)) {
+                if (child.dataset.browserOwnedOverlay === 'true') {
+                    child.style.zoom = '1';
+                } else {
+                    child.style.zoom = scale;
+                }
+            }
+        })();
+        """)
     }
 
     func pauseMedia() {
@@ -365,6 +390,17 @@ final class BrowserNavigationController {
             const isDrawerVisible = () => {
                 const drawer = document.getElementById('browser-debug-drawer');
                 return !!(drawer && !drawer.hidden && state.visible);
+            };
+
+            const setDrawerVisible = (visible, root = null) => {
+                const host = document.getElementById('browser-debug-drawer');
+                const panel = root || (host && host.shadowRoot && host.shadowRoot.getElementById('browser-debug-panel'));
+                if (host) {
+                    host.hidden = !visible;
+                    host.style.display = visible ? 'block' : 'none';
+                }
+                if (panel) panel.hidden = !visible;
+                state.visible = visible;
             };
 
             const scheduleRender = () => {
@@ -549,34 +585,44 @@ final class BrowserNavigationController {
             }
 
             function ensureDrawer() {
-                let root = document.getElementById('browser-debug-drawer');
-                if (root) return root;
+                let host = document.getElementById('browser-debug-drawer');
+                if (host) {
+                    const existingRoot = host.shadowRoot && host.shadowRoot.getElementById('browser-debug-panel');
+                    if (existingRoot) return existingRoot;
+                    host.remove();
+                }
 
                 const style = document.createElement('style');
                 style.id = 'browser-debug-style';
+                style.dataset.browserOwnedOverlay = 'true';
                 style.textContent = `
-                    #browser-debug-drawer {
+                    #browser-debug-panel {
                         --browser-debug-font: "LilexNFM-Regular", "Lilex Nerd Font Mono", "Lilex Nerd Font", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-                        position: fixed;
-                        left: 50%;
-                        top: 50%;
-                        width: min(96vw, 1180px);
-                        height: min(calc(100vh - 48px), 820px);
-                        z-index: 2147483647;
+                        --browser-debug-font-size: 14px;
+                        --browser-debug-line-height: 1.35;
                         display: grid;
                         grid-template-rows: auto 1fr;
-                        transform: translate(-50%, -50%);
+                        width: 100%;
+                        height: 100%;
                         background: #000000;
                         color: #ffffff;
-                        border: 1px solid rgba(255,255,255,0.18);
-                        border-radius: 10px;
+                        border: 0;
+                        border-radius: 0;
                         box-shadow: none;
                         overflow: hidden;
-                        font: 14px var(--browser-debug-font);
+                        font: 400 var(--browser-debug-font-size) / var(--browser-debug-line-height) var(--browser-debug-font) !important;
+                        text-size-adjust: none;
+                        -webkit-text-size-adjust: none;
+                        zoom: 1 !important;
+                        contain: layout style paint;
                     }
-                    #browser-debug-drawer[hidden] { display: none !important; }
-                    #browser-debug-drawer:focus { outline: none; }
-                    #browser-debug-drawer * { box-sizing: border-box; }
+                    #browser-debug-panel:focus { outline: none; }
+                    #browser-debug-panel, #browser-debug-panel *, #browser-debug-panel *::before, #browser-debug-panel *::after {
+                        box-sizing: border-box;
+                        font: 400 var(--browser-debug-font-size) / var(--browser-debug-line-height) var(--browser-debug-font) !important;
+                        text-size-adjust: none;
+                        -webkit-text-size-adjust: none;
+                    }
                     .browser-debug-bar {
                         display: flex;
                         align-items: center;
@@ -586,11 +632,8 @@ final class BrowserNavigationController {
                         border-bottom: 1px solid rgba(255,255,255,0.08);
                     }
                     .browser-debug-title {
-                        font-size: 28px;
-                        font-weight: 400;
                         color: #ffffff;
                         margin-right: 8px;
-                        line-height: 1;
                     }
                     .browser-debug-tab, .browser-debug-action {
                         appearance: none;
@@ -652,7 +695,6 @@ final class BrowserNavigationController {
                         box-sizing: border-box;
                         min-height: 0;
                         height: 48px;
-                        font-size: 15px;
                         padding: 7px 12px 3px;
                     }
                     .browser-debug-network-route {
@@ -699,18 +741,13 @@ final class BrowserNavigationController {
                         color: #ffffff;
                     }
                     .browser-debug-method {
-                        font: inherit;
                         font-weight: 400;
                     }
                     .browser-debug-selected-marker {
                         display: block;
                         color: #ffffff;
-                        font-size: 18px;
                         padding-top: 0;
                         padding-bottom: 1px;
-                        font-family: inherit;
-                        font-weight: 400;
-                        line-height: 1;
                     }
                     .browser-debug-network-item:hover {
                         background: rgba(255,255,255,0.08);
@@ -725,8 +762,6 @@ final class BrowserNavigationController {
                     .browser-debug-network-title {
                         margin: 0 0 10px;
                         color: #ffffff;
-                        font-size: 16px;
-                        font-weight: 400;
                         overflow-wrap: anywhere;
                     }
                     .browser-debug-status-ok { color: #97e6b1; }
@@ -749,8 +784,6 @@ final class BrowserNavigationController {
                         min-height: 100%;
                         color: rgba(255,255,255,0.82);
                         background: transparent;
-                        font: 13px var(--browser-debug-font);
-                        line-height: 1.5;
                         tab-size: 2;
                         white-space: pre-wrap;
                         overflow-wrap: anywhere;
@@ -763,7 +796,6 @@ final class BrowserNavigationController {
                         min-height: 100%;
                         overflow: auto;
                         padding: 8px 0;
-                        font: 13px var(--browser-debug-font);
                     }
                     .browser-debug-node {
                         display: flex;
@@ -790,8 +822,6 @@ final class BrowserNavigationController {
                     .browser-debug-token-muted { color: #9aa4af; }
                     .browser-debug-detail-title {
                         margin: 0 0 10px;
-                        font-size: 16px;
-                        font-weight: 400;
                         color: #ffffff;
                     }
                     .browser-debug-detail-code {
@@ -799,29 +829,42 @@ final class BrowserNavigationController {
                         padding: 10px;
                         border-radius: 8px;
                         background: rgba(255,255,255,0.1);
-                        font: 13px var(--browser-debug-font);
-                        line-height: 1.5;
                         white-space: pre-wrap;
                         overflow-wrap: anywhere;
                     }
-                    @media (max-width: 720px) {
-                        #browser-debug-drawer { width: 96vw; height: calc(100vh - 32px); }
-                        .browser-debug-bar { overflow-x: auto; }
-                        .browser-debug-row, .browser-debug-request, .browser-debug-kv { grid-template-columns: 1fr; gap: 4px; }
-                        .browser-debug-network-row, .browser-debug-network-item { height: 76px; }
-                        .browser-debug-network-shell { grid-template-columns: 1fr; }
-                        .browser-debug-network-list { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.1); max-height: 50%; }
-                        .browser-debug-source-tree { max-height: none; }
-                    }
                 `;
-                document.head.appendChild(style);
 
-                root = document.createElement('section');
-                root.id = 'browser-debug-drawer';
+                host = document.createElement('div');
+                host.id = 'browser-debug-drawer';
+                host.dataset.browserOwnedOverlay = 'true';
+                host.style.cssText = [
+                    'all: initial',
+                    'position: fixed',
+                    'inset: 0',
+                    'width: auto',
+                    'height: auto',
+                    'z-index: 2147483647',
+                    'zoom: 1 !important',
+                    'display: block',
+                    'font-family: "LilexNFM-Regular", "Lilex Nerd Font Mono", "Lilex Nerd Font", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+                    'font-size: 14px',
+                    'font-style: normal',
+                    'font-weight: 400',
+                    'line-height: 1.35',
+                    'text-size-adjust: none',
+                    '-webkit-text-size-adjust: none',
+                    'contain: layout style paint'
+                ].join(';');
+
+                const shadow = host.attachShadow({ mode: 'open' });
+                const root = document.createElement('section');
+                root.id = 'browser-debug-panel';
                 root.setAttribute('role', 'dialog');
                 root.setAttribute('aria-label', 'Browser debug tools');
                 root.tabIndex = -1;
-                (document.body || document.documentElement).appendChild(root);
+                shadow.appendChild(style);
+                shadow.appendChild(root);
+                (document.body || document.documentElement).appendChild(host);
                 return root;
             }
 
@@ -1199,23 +1242,15 @@ final class BrowserNavigationController {
                     button.addEventListener('click', () => {
                         state.selectedTab = button.dataset.tab;
                         window.__browserDebugRender();
-                        requestAnimationFrame(() => {
-                            const root = document.getElementById('browser-debug-drawer');
-                            root && root.focus();
-                        });
+                        focusDebugRoot();
                     });
                 });
                 const focusDebugRoot = () => {
                     requestAnimationFrame(() => {
-                        const root = document.getElementById('browser-debug-drawer');
-                        root && root.focus();
+                        const host = document.getElementById('browser-debug-drawer');
+                        const panel = host && host.shadowRoot && host.shadowRoot.getElementById('browser-debug-panel');
+                        panel && panel.focus();
                     });
-                };
-                const scrollDebugBody = (delta) => {
-                    const body = root.querySelector('.browser-debug-body');
-                    if (!body) return;
-                    body.scrollTop += delta * 56;
-                    if (state.selectedTab === 'sources') state.sourceBodyScrollTop = body.scrollTop;
                 };
                 const moveDebugTab = (delta) => {
                     const tabIDs = tabs.map(([id]) => id);
@@ -1224,6 +1259,12 @@ final class BrowserNavigationController {
                     state.selectedTab = tabIDs[nextIndex];
                     window.__browserDebugRender();
                     focusDebugRoot();
+                };
+                const scrollDebugBody = (delta) => {
+                    const body = root.querySelector('.browser-debug-body');
+                    if (!body) return;
+                    body.scrollTop += delta * 56;
+                    if (state.selectedTab === 'sources') state.sourceBodyScrollTop = body.scrollTop;
                 };
                 root.onkeydown = (event) => {
                     if (event.key === 'h' || event.key === 'ArrowLeft') {
@@ -1328,14 +1369,12 @@ final class BrowserNavigationController {
                     });
                 }
                 root.querySelector('[data-action="close"]').addEventListener('click', () => {
-                    state.visible = false;
-                    root.hidden = true;
+                    setDrawerVisible(false, root);
                 });
             };
 
             const drawer = ensureDrawer();
-            state.visible = !state.visible;
-            drawer.hidden = !state.visible;
+            setDrawerVisible(!state.visible, drawer);
             if (state.visible) {
                 window.__browserDebugRender();
                 requestAnimationFrame(() => drawer.focus());
@@ -1355,9 +1394,50 @@ final class BrowserNavigationController {
         webView?.evaluateJavaScript("""
         (() => {
             const state = window.__browserDebugState;
-            const drawer = document.getElementById('browser-debug-drawer');
+            const host = document.getElementById('browser-debug-drawer');
+            const panel = host && host.shadowRoot && host.shadowRoot.getElementById('browser-debug-panel');
             if (state) state.visible = false;
-            if (drawer) drawer.hidden = true;
+            if (host) {
+                host.hidden = true;
+                host.style.display = 'none';
+            }
+            if (panel) panel.hidden = true;
+        })();
+        """)
+    }
+
+    func moveDeveloperToolsTab(by delta: Int) {
+        webView?.evaluateJavaScript("""
+        (() => {
+            const state = window.__browserDebugState;
+            const host = document.getElementById('browser-debug-drawer');
+            const panel = host && host.shadowRoot && host.shadowRoot.getElementById('browser-debug-panel');
+            if (!state || !state.visible || !panel) return;
+
+            const tabIDs = ['console', 'network', 'sources', 'storage', 'environment'];
+            const currentIndex = Math.max(0, tabIDs.indexOf(state.selectedTab));
+            state.selectedTab = tabIDs[(currentIndex + \(delta) + tabIDs.length) % tabIDs.length];
+            window.__browserDebugRender && window.__browserDebugRender();
+            requestAnimationFrame(() => panel.focus());
+        })();
+        """)
+    }
+
+    func moveDeveloperToolsSelection(by delta: Int) {
+        let key = delta >= 0 ? "j" : "k"
+        webView?.evaluateJavaScript("""
+        (() => {
+            const state = window.__browserDebugState;
+            const host = document.getElementById('browser-debug-drawer');
+            const panel = host && host.shadowRoot && host.shadowRoot.getElementById('browser-debug-panel');
+            if (!state || !state.visible || !panel) return;
+
+            panel.dispatchEvent(new KeyboardEvent('keydown', {
+                key: '\(key)',
+                bubbles: true,
+                cancelable: true
+            }));
+            requestAnimationFrame(() => panel.focus());
         })();
         """)
     }
@@ -1645,6 +1725,7 @@ struct BrowserWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.onPageTitleChange = onPageTitleChange
+        context.coordinator.applyPageScale = { navigationController.applyPageScale() }
         context.coordinator.attach(to: webView)
         context.coordinator.lastRequestedURL = url
         navigationController.attach(webView: webView)
@@ -1661,6 +1742,7 @@ struct BrowserWebView: UIViewRepresentable {
     func updateUIView(_ uiView: BrowserWKWebView, context: Context) {
         configureInspection(for: uiView)
         context.coordinator.onPageTitleChange = onPageTitleChange
+        context.coordinator.applyPageScale = { navigationController.applyPageScale() }
         configureShortcuts(for: uiView)
         syncSidebarNavigationMode(in: uiView, context: context)
 
@@ -1759,6 +1841,7 @@ extension BrowserWebView {
         var lastAppliedSidebarNavigationEnabled: Bool?
         var isSidebarNavigationEnabled = false
         var onPageTitleChange: (() -> Void)?
+        var applyPageScale: (() -> Void)?
         private var urlObservation: NSKeyValueObservation?
         private var titleObservation: NSKeyValueObservation?
 
@@ -1785,6 +1868,7 @@ extension BrowserWebView {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             syncObservedURL(from: webView.url)
             applySidebarNavigationMode(to: webView)
+            applyPageScale?()
 
             if url == BrowserHomePage.url {
                 webView.becomeFirstResponder()

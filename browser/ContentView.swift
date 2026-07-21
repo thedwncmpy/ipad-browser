@@ -593,7 +593,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var keyboardCaptureLayer: some View {
-        if activeOverlay == .sidebar || activeOverlay == .history || (activeOverlay == .none && keyboardFocusTarget == .capture) {
+        if activeOverlay == .sidebar || activeOverlay == .history || isNetworkToolsVisible || (activeOverlay == .none && keyboardFocusTarget == .capture) {
             KeyboardCaptureView(
                 onNewWorkspace: createNewWorkspace,
                 onNewTab: createNewTab,
@@ -602,8 +602,10 @@ struct ContentView: View {
                 onReopenClosedTab: reopenClosedTabInCurrentWorkspace,
                 onNextWorkspace: selectNextWorkspace,
                 onPreviousWorkspace: selectPreviousWorkspace,
-                onNextTab: selectNextTab,
-                onPreviousTab: selectPreviousTab,
+                onNextTab: selectNextTabOrDeveloperToolsSelection,
+                onPreviousTab: selectPreviousTabOrDeveloperToolsSelection,
+                onNextHorizontalNavigation: selectNextDeveloperToolsTabOrWorkspace,
+                onPreviousHorizontalNavigation: selectPreviousDeveloperToolsTabOrWorkspace,
                 onMoveTabToNextWorkspace: moveCurrentTabToNextWorkspace,
                 onMoveTabToPreviousWorkspace: moveCurrentTabToPreviousWorkspace,
                 onMoveTabDown: moveCurrentTabDown,
@@ -624,7 +626,8 @@ struct ContentView: View {
                 onZoomIn: zoomIn,
                 onZoomOut: zoomOut,
                 shortcuts: shortcuts,
-                focusRequestID: captureFocusRequestID == 0 ? nil : captureFocusRequestID
+                focusRequestID: captureFocusRequestID == 0 ? nil : captureFocusRequestID,
+                usesTabHorizontalNavigation: isNetworkToolsVisible
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
@@ -762,6 +765,15 @@ struct ContentView: View {
         }
     }
 
+    private func selectNextTabOrDeveloperToolsSelection() {
+        if isNetworkToolsVisible {
+            activeTab?.navigationController.moveDeveloperToolsSelection(by: 1)
+            return
+        }
+
+        selectNextTab()
+    }
+
     private func selectPreviousTab() {
         if activeOverlay == .history {
             moveHistorySelection(by: -1)
@@ -771,6 +783,33 @@ struct ContentView: View {
         handleShortcut(.previousTab) {
             perform(.previousTab)
         }
+    }
+
+    private func selectPreviousTabOrDeveloperToolsSelection() {
+        if isNetworkToolsVisible {
+            activeTab?.navigationController.moveDeveloperToolsSelection(by: -1)
+            return
+        }
+
+        selectPreviousTab()
+    }
+
+    private func selectNextDeveloperToolsTabOrWorkspace() {
+        if isNetworkToolsVisible {
+            activeTab?.navigationController.moveDeveloperToolsTab(by: 1)
+            return
+        }
+
+        selectNextWorkspace()
+    }
+
+    private func selectPreviousDeveloperToolsTabOrWorkspace() {
+        if isNetworkToolsVisible {
+            activeTab?.navigationController.moveDeveloperToolsTab(by: -1)
+            return
+        }
+
+        selectPreviousWorkspace()
     }
 
     private func moveCurrentTabToNextWorkspace() {
@@ -1993,6 +2032,9 @@ struct ContentView: View {
         closeActiveOverlayForExclusiveSurface()
         activeTab?.navigationController.toggleErudaDeveloperTools { isVisible in
             isNetworkToolsVisible = isVisible
+            if isVisible {
+                requestKeyboardFocus(.capture)
+            }
             if !isVisible {
                 activeTab?.navigationController.hideErudaDeveloperTools()
                 showDevToolsUnavailableNotice()
@@ -2004,6 +2046,9 @@ struct ContentView: View {
         guard isNetworkToolsVisible else { return }
         activeTab?.navigationController.hideErudaDeveloperTools()
         isNetworkToolsVisible = false
+        if activeOverlay == .none {
+            requestKeyboardFocus(.browser)
+        }
     }
 
     private func showDevToolsUnavailableNotice() {

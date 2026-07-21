@@ -18,6 +18,8 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onPreviousWorkspace: () -> Void
     let onNextTab: () -> Void
     let onPreviousTab: () -> Void
+    let onNextHorizontalNavigation: () -> Void
+    let onPreviousHorizontalNavigation: () -> Void
     let onMoveTabToNextWorkspace: () -> Void
     let onMoveTabToPreviousWorkspace: () -> Void
     let onMoveTabDown: () -> Void
@@ -39,6 +41,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     let onZoomOut: () -> Void
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
     let focusRequestID: Int?
+    let usesTabHorizontalNavigation: Bool
 
     func makeUIViewController(context: Context) -> KeyCaptureViewController {
         let controller = KeyCaptureViewController()
@@ -60,6 +63,8 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onPreviousWorkspace = onPreviousWorkspace
         controller.onNextTab = onNextTab
         controller.onPreviousTab = onPreviousTab
+        controller.onNextHorizontalNavigation = onNextHorizontalNavigation
+        controller.onPreviousHorizontalNavigation = onPreviousHorizontalNavigation
         controller.onMoveTabToNextWorkspace = onMoveTabToNextWorkspace
         controller.onMoveTabToPreviousWorkspace = onMoveTabToPreviousWorkspace
         controller.onMoveTabDown = onMoveTabDown
@@ -80,6 +85,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
         controller.onZoomIn = onZoomIn
         controller.onZoomOut = onZoomOut
         controller.shortcuts = shortcuts
+        controller.usesTabHorizontalNavigation = usesTabHorizontalNavigation
 
         if let focusRequestID, controller.lastAppliedFocusRequestID != focusRequestID {
             controller.lastAppliedFocusRequestID = focusRequestID
@@ -98,6 +104,8 @@ final class KeyCaptureViewController: UIViewController {
     var onPreviousWorkspace: (() -> Void)?
     var onNextTab: (() -> Void)?
     var onPreviousTab: (() -> Void)?
+    var onNextHorizontalNavigation: (() -> Void)?
+    var onPreviousHorizontalNavigation: (() -> Void)?
     var onMoveTabToNextWorkspace: (() -> Void)?
     var onMoveTabToPreviousWorkspace: (() -> Void)?
     var onMoveTabDown: (() -> Void)?
@@ -119,6 +127,7 @@ final class KeyCaptureViewController: UIViewController {
     var onZoomOut: (() -> Void)?
     var shortcuts = BrowserShortcutStore.defaults
     var lastAppliedFocusRequestID: Int?
+    var usesTabHorizontalNavigation = false
 
     override var canBecomeFirstResponder: Bool { true }
 
@@ -156,10 +165,10 @@ final class KeyCaptureViewController: UIViewController {
             UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(selectNextTab(_:))),
             shortcuts[.sidebarModePreviousTab, default: BrowserShortcutStore.defaults[.sidebarModePreviousTab]!].makeCommand(action: #selector(selectPreviousTab(_:))),
             UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(selectPreviousTab(_:))),
-            shortcuts[.sidebarModePreviousWorkspace, default: BrowserShortcutStore.defaults[.sidebarModePreviousWorkspace]!].makeCommand(action: #selector(selectPreviousWorkspace(_:))),
-            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(selectPreviousWorkspace(_:))),
-            shortcuts[.sidebarModeNextWorkspace, default: BrowserShortcutStore.defaults[.sidebarModeNextWorkspace]!].makeCommand(action: #selector(selectNextWorkspace(_:))),
-            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(selectNextWorkspace(_:))),
+            shortcuts[.sidebarModePreviousWorkspace, default: BrowserShortcutStore.defaults[.sidebarModePreviousWorkspace]!].makeCommand(action: usesTabHorizontalNavigation ? #selector(selectPreviousHorizontalNavigation(_:)) : #selector(selectPreviousWorkspace(_:))),
+            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: usesTabHorizontalNavigation ? #selector(selectPreviousHorizontalNavigation(_:)) : #selector(selectPreviousWorkspace(_:))),
+            shortcuts[.sidebarModeNextWorkspace, default: BrowserShortcutStore.defaults[.sidebarModeNextWorkspace]!].makeCommand(action: usesTabHorizontalNavigation ? #selector(selectNextHorizontalNavigation(_:)) : #selector(selectNextWorkspace(_:))),
+            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: usesTabHorizontalNavigation ? #selector(selectNextHorizontalNavigation(_:)) : #selector(selectNextWorkspace(_:))),
             UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(submitSelection(_:))),
             UIKeyCommand(input: "/", modifierFlags: [], action: #selector(focusFilter(_:)))
         ]
@@ -191,6 +200,14 @@ final class KeyCaptureViewController: UIViewController {
 
     @objc private func selectPreviousTab(_ sender: UIKeyCommand) {
         onPreviousTab?()
+    }
+
+    @objc private func selectNextHorizontalNavigation(_ sender: UIKeyCommand) {
+        onNextHorizontalNavigation?()
+    }
+
+    @objc private func selectPreviousHorizontalNavigation(_ sender: UIKeyCommand) {
+        onPreviousHorizontalNavigation?()
     }
 
     @objc private func moveTabToNextWorkspace(_ sender: UIKeyCommand) {
