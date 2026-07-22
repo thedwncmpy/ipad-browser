@@ -9,36 +9,7 @@ import SwiftUI
 import UIKit
 
 struct KeyboardCaptureView: UIViewControllerRepresentable {
-    let onNewWorkspace: () -> Void
-    let onNewTab: () -> Void
-    let onCloseWorkspace: () -> Void
-    let onCloseTab: () -> Void
-    let onReopenClosedTab: () -> Void
-    let onNextWorkspace: () -> Void
-    let onPreviousWorkspace: () -> Void
-    let onNextTab: () -> Void
-    let onPreviousTab: () -> Void
-    let onNextHorizontalNavigation: () -> Void
-    let onPreviousHorizontalNavigation: () -> Void
-    let onMoveTabToNextWorkspace: () -> Void
-    let onMoveTabToPreviousWorkspace: () -> Void
-    let onMoveTabDown: () -> Void
-    let onMoveTabUp: () -> Void
-    let onToggleSidebar: () -> Void
-    let onToggleSpotlight: () -> Void
-    let onToggleCommandPalette: () -> Void
-    let onToggleFind: () -> Void
-    let onToggleHistory: () -> Void
-    let onToggleSettings: () -> Void
-    let onToggleNetworkTools: () -> Void
-    let onSubmitSelection: () -> Void
-    let onFocusFilter: () -> Void
-    let onDismissSpotlight: () -> Void
-    let onGoBack: () -> Void
-    let onGoForward: () -> Void
-    let onReload: () -> Void
-    let onZoomIn: () -> Void
-    let onZoomOut: () -> Void
+    let handleAction: (BrowserKeyboardAction) -> Void
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
     let focusRequestID: Int?
     let usesTabHorizontalNavigation: Bool
@@ -54,36 +25,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
     }
 
     private func configure(_ controller: KeyCaptureViewController) {
-        controller.onNewWorkspace = onNewWorkspace
-        controller.onNewTab = onNewTab
-        controller.onCloseWorkspace = onCloseWorkspace
-        controller.onCloseTab = onCloseTab
-        controller.onReopenClosedTab = onReopenClosedTab
-        controller.onNextWorkspace = onNextWorkspace
-        controller.onPreviousWorkspace = onPreviousWorkspace
-        controller.onNextTab = onNextTab
-        controller.onPreviousTab = onPreviousTab
-        controller.onNextHorizontalNavigation = onNextHorizontalNavigation
-        controller.onPreviousHorizontalNavigation = onPreviousHorizontalNavigation
-        controller.onMoveTabToNextWorkspace = onMoveTabToNextWorkspace
-        controller.onMoveTabToPreviousWorkspace = onMoveTabToPreviousWorkspace
-        controller.onMoveTabDown = onMoveTabDown
-        controller.onMoveTabUp = onMoveTabUp
-        controller.onToggleSidebar = onToggleSidebar
-        controller.onToggleSpotlight = onToggleSpotlight
-        controller.onToggleCommandPalette = onToggleCommandPalette
-        controller.onToggleFind = onToggleFind
-        controller.onToggleHistory = onToggleHistory
-        controller.onToggleSettings = onToggleSettings
-        controller.onToggleNetworkTools = onToggleNetworkTools
-        controller.onSubmitSelection = onSubmitSelection
-        controller.onFocusFilter = onFocusFilter
-        controller.onDismissSpotlight = onDismissSpotlight
-        controller.onGoBack = onGoBack
-        controller.onGoForward = onGoForward
-        controller.onReload = onReload
-        controller.onZoomIn = onZoomIn
-        controller.onZoomOut = onZoomOut
+        controller.handleAction = handleAction
         controller.shortcuts = shortcuts
         controller.usesTabHorizontalNavigation = usesTabHorizontalNavigation
 
@@ -95,36 +37,7 @@ struct KeyboardCaptureView: UIViewControllerRepresentable {
 }
 
 final class KeyCaptureViewController: UIViewController {
-    var onNewWorkspace: (() -> Void)?
-    var onNewTab: (() -> Void)?
-    var onCloseWorkspace: (() -> Void)?
-    var onCloseTab: (() -> Void)?
-    var onReopenClosedTab: (() -> Void)?
-    var onNextWorkspace: (() -> Void)?
-    var onPreviousWorkspace: (() -> Void)?
-    var onNextTab: (() -> Void)?
-    var onPreviousTab: (() -> Void)?
-    var onNextHorizontalNavigation: (() -> Void)?
-    var onPreviousHorizontalNavigation: (() -> Void)?
-    var onMoveTabToNextWorkspace: (() -> Void)?
-    var onMoveTabToPreviousWorkspace: (() -> Void)?
-    var onMoveTabDown: (() -> Void)?
-    var onMoveTabUp: (() -> Void)?
-    var onToggleSidebar: (() -> Void)?
-    var onToggleSpotlight: (() -> Void)?
-    var onToggleCommandPalette: (() -> Void)?
-    var onToggleFind: (() -> Void)?
-    var onToggleHistory: (() -> Void)?
-    var onToggleSettings: (() -> Void)?
-    var onToggleNetworkTools: (() -> Void)?
-    var onSubmitSelection: (() -> Void)?
-    var onFocusFilter: (() -> Void)?
-    var onDismissSpotlight: (() -> Void)?
-    var onGoBack: (() -> Void)?
-    var onGoForward: (() -> Void)?
-    var onReload: (() -> Void)?
-    var onZoomIn: (() -> Void)?
-    var onZoomOut: (() -> Void)?
+    var handleAction: ((BrowserKeyboardAction) -> Void)?
     var shortcuts = BrowserShortcutStore.defaults
     var lastAppliedFocusRequestID: Int?
     var usesTabHorizontalNavigation = false
@@ -175,63 +88,63 @@ final class KeyCaptureViewController: UIViewController {
     }
 
     @objc private func createNewTab(_ sender: UIKeyCommand) {
-        onNewTab?()
+        dispatch(.newTab)
     }
 
     @objc private func createNewWorkspace(_ sender: UIKeyCommand) {
-        onNewWorkspace?()
+        dispatch(.newWorkspace)
     }
 
     @objc private func closeCurrentTab(_ sender: UIKeyCommand) {
-        onCloseTab?()
+        dispatch(.closeTab)
     }
 
     @objc private func reopenClosedTab(_ sender: UIKeyCommand) {
-        onReopenClosedTab?()
+        dispatch(.reopenClosedTab)
     }
 
     @objc private func closeCurrentWorkspace(_ sender: UIKeyCommand) {
-        onCloseWorkspace?()
+        dispatch(.closeWorkspace)
     }
 
     @objc private func selectNextTab(_ sender: UIKeyCommand) {
-        onNextTab?()
+        dispatch(.nextTab)
     }
 
     @objc private func selectPreviousTab(_ sender: UIKeyCommand) {
-        onPreviousTab?()
+        dispatch(.previousTab)
     }
 
     @objc private func selectNextHorizontalNavigation(_ sender: UIKeyCommand) {
-        onNextHorizontalNavigation?()
+        dispatch(.nextHorizontalNavigation)
     }
 
     @objc private func selectPreviousHorizontalNavigation(_ sender: UIKeyCommand) {
-        onPreviousHorizontalNavigation?()
+        dispatch(.previousHorizontalNavigation)
     }
 
     @objc private func moveTabToNextWorkspace(_ sender: UIKeyCommand) {
-        onMoveTabToNextWorkspace?()
+        dispatch(.moveTabToNextWorkspace)
     }
 
     @objc private func moveTabToPreviousWorkspace(_ sender: UIKeyCommand) {
-        onMoveTabToPreviousWorkspace?()
+        dispatch(.moveTabToPreviousWorkspace)
     }
 
     @objc private func moveTabDown(_ sender: UIKeyCommand) {
-        onMoveTabDown?()
+        dispatch(.moveTabDown)
     }
 
     @objc private func moveTabUp(_ sender: UIKeyCommand) {
-        onMoveTabUp?()
+        dispatch(.moveTabUp)
     }
 
     @objc private func selectNextWorkspace(_ sender: UIKeyCommand) {
-        onNextWorkspace?()
+        dispatch(.nextWorkspace)
     }
 
     @objc private func selectPreviousWorkspace(_ sender: UIKeyCommand) {
-        onPreviousWorkspace?()
+        dispatch(.previousWorkspace)
     }
 
     override func loadView() {
@@ -252,62 +165,66 @@ final class KeyCaptureViewController: UIViewController {
     }
 
     @objc private func handleSidebarToggle(_ sender: UIKeyCommand) {
-        onToggleSidebar?()
+        dispatch(.toggleSidebar)
     }
 
     @objc private func toggleSpotlight(_ sender: UIKeyCommand) {
-        onToggleSpotlight?()
+        dispatch(.toggleSpotlight)
     }
 
     @objc private func toggleCommandPalette(_ sender: UIKeyCommand) {
-        onToggleCommandPalette?()
+        dispatch(.toggleCommandPalette)
     }
 
     @objc private func toggleFind(_ sender: UIKeyCommand) {
-        onToggleFind?()
+        dispatch(.toggleFind)
     }
 
     @objc private func toggleHistory(_ sender: UIKeyCommand) {
-        onToggleHistory?()
+        dispatch(.toggleHistory)
     }
 
     @objc private func toggleSettings(_ sender: UIKeyCommand) {
-        onToggleSettings?()
+        dispatch(.toggleSettings)
     }
 
     @objc private func toggleNetworkTools(_ sender: UIKeyCommand) {
-        onToggleNetworkTools?()
+        dispatch(.toggleNetworkTools)
     }
 
     @objc private func submitSelection(_ sender: UIKeyCommand) {
-        onSubmitSelection?()
+        dispatch(.submitSelection)
     }
 
     @objc private func focusFilter(_ sender: UIKeyCommand) {
-        onFocusFilter?()
+        dispatch(.focusFilter)
     }
 
     @objc private func dismissSpotlight(_ sender: UIKeyCommand) {
-        onDismissSpotlight?()
+        dispatch(.dismissOverlay)
     }
 
     @objc private func goBack(_ sender: UIKeyCommand) {
-        onGoBack?()
+        dispatch(.goBack)
     }
 
     @objc private func goForward(_ sender: UIKeyCommand) {
-        onGoForward?()
+        dispatch(.goForward)
     }
 
     @objc private func reloadPage(_ sender: UIKeyCommand) {
-        onReload?()
+        dispatch(.reload)
     }
 
     @objc private func zoomIn(_ sender: UIKeyCommand) {
-        onZoomIn?()
+        dispatch(.zoomIn)
     }
 
     @objc private func zoomOut(_ sender: UIKeyCommand) {
-        onZoomOut?()
+        dispatch(.zoomOut)
+    }
+
+    private func dispatch(_ action: BrowserKeyboardAction) {
+        handleAction?(action)
     }
 }

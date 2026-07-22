@@ -308,32 +308,7 @@ struct ContentView: View {
                         navigationController: tab.navigationController,
                         focusRequestID: browserFocusRequestID(for: tab, in: workspace),
                         isSidebarNavigationEnabled: activeOverlay == .sidebar || activeOverlay == .history,
-                        onNewWorkspace: createNewWorkspace,
-                        onNewTab: createNewTab,
-                        onCloseWorkspace: closeCurrentWorkspace,
-                        onCloseTab: closeCurrentTab,
-                        onReopenClosedTab: reopenClosedTabInCurrentWorkspace,
-                        onNextWorkspace: selectNextWorkspace,
-                        onPreviousWorkspace: selectPreviousWorkspace,
-                        onNextTab: selectNextTab,
-                        onPreviousTab: selectPreviousTab,
-                        onMoveTabToNextWorkspace: moveCurrentTabToNextWorkspace,
-                        onMoveTabToPreviousWorkspace: moveCurrentTabToPreviousWorkspace,
-                        onMoveTabDown: moveCurrentTabDown,
-                        onMoveTabUp: moveCurrentTabUp,
-                        onToggleSidebar: toggleSidebar,
-                        onToggleSpotlight: toggleSpotlight,
-                        onToggleCommandPalette: toggleCommandPalette,
-                        onToggleFind: toggleFind,
-                onToggleHistory: toggleHistory,
-                onToggleSettings: toggleSettings,
-                onToggleNetworkTools: toggleNetworkTools,
-                onDismissOverlay: dismissSpotlight,
-                        onGoBack: goBack,
-                        onGoForward: goForward,
-                        onReload: reload,
-                        onZoomIn: zoomIn,
-                        onZoomOut: zoomOut,
+                        handleKeyboardAction: handleBrowserKeyboardAction,
                         onPageTitleChange: refreshTabTitles,
                         shortcuts: shortcuts
                     )
@@ -351,32 +326,7 @@ struct ContentView: View {
                     navigationController: historyPreviewTab.navigationController,
                     focusRequestID: nil,
                     isSidebarNavigationEnabled: true,
-                    onNewWorkspace: createNewWorkspace,
-                    onNewTab: createNewTab,
-                    onCloseWorkspace: closeCurrentWorkspace,
-                    onCloseTab: closeCurrentTab,
-                    onReopenClosedTab: reopenClosedTabInCurrentWorkspace,
-                    onNextWorkspace: selectNextWorkspace,
-                    onPreviousWorkspace: selectPreviousWorkspace,
-                    onNextTab: selectNextTab,
-                    onPreviousTab: selectPreviousTab,
-                    onMoveTabToNextWorkspace: moveCurrentTabToNextWorkspace,
-                    onMoveTabToPreviousWorkspace: moveCurrentTabToPreviousWorkspace,
-                    onMoveTabDown: moveCurrentTabDown,
-                    onMoveTabUp: moveCurrentTabUp,
-                    onToggleSidebar: toggleSidebar,
-                    onToggleSpotlight: toggleSpotlight,
-                    onToggleCommandPalette: toggleCommandPalette,
-                    onToggleFind: toggleFind,
-                    onToggleHistory: toggleHistory,
-                    onToggleSettings: toggleSettings,
-                    onToggleNetworkTools: toggleNetworkTools,
-                    onDismissOverlay: dismissSpotlight,
-                    onGoBack: goBack,
-                    onGoForward: goForward,
-                    onReload: reload,
-                    onZoomIn: zoomIn,
-                    onZoomOut: zoomOut,
+                    handleKeyboardAction: handleBrowserKeyboardAction,
                     onPageTitleChange: refreshTabTitles,
                     shortcuts: shortcuts
                 )
@@ -595,36 +545,7 @@ struct ContentView: View {
     private var keyboardCaptureLayer: some View {
         if activeOverlay == .sidebar || activeOverlay == .history || isNetworkToolsVisible || (activeOverlay == .none && keyboardFocusTarget == .capture) {
             KeyboardCaptureView(
-                onNewWorkspace: createNewWorkspace,
-                onNewTab: createNewTab,
-                onCloseWorkspace: closeCurrentWorkspace,
-                onCloseTab: closeCurrentTab,
-                onReopenClosedTab: reopenClosedTabInCurrentWorkspace,
-                onNextWorkspace: selectNextWorkspace,
-                onPreviousWorkspace: selectPreviousWorkspace,
-                onNextTab: selectNextTabOrDeveloperToolsSelection,
-                onPreviousTab: selectPreviousTabOrDeveloperToolsSelection,
-                onNextHorizontalNavigation: selectNextDeveloperToolsTabOrWorkspace,
-                onPreviousHorizontalNavigation: selectPreviousDeveloperToolsTabOrWorkspace,
-                onMoveTabToNextWorkspace: moveCurrentTabToNextWorkspace,
-                onMoveTabToPreviousWorkspace: moveCurrentTabToPreviousWorkspace,
-                onMoveTabDown: moveCurrentTabDown,
-                onMoveTabUp: moveCurrentTabUp,
-                onToggleSidebar: toggleSidebar,
-                onToggleSpotlight: toggleSpotlight,
-                onToggleCommandPalette: toggleCommandPalette,
-                onToggleFind: toggleFind,
-                onToggleHistory: toggleHistory,
-                onToggleSettings: toggleSettings,
-                onToggleNetworkTools: toggleNetworkTools,
-                onSubmitSelection: submitHistorySearch,
-                onFocusFilter: focusHistoryFilter,
-                onDismissSpotlight: dismissSpotlight,
-                onGoBack: goBack,
-                onGoForward: goForward,
-                onReload: reload,
-                onZoomIn: zoomIn,
-                onZoomOut: zoomOut,
+                handleAction: handleCaptureKeyboardAction,
                 shortcuts: shortcuts,
                 focusRequestID: captureFocusRequestID == 0 ? nil : captureFocusRequestID,
                 usesTabHorizontalNavigation: isNetworkToolsVisible
@@ -632,6 +553,98 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+        }
+    }
+
+    private func handleBrowserKeyboardAction(_ action: BrowserKeyboardAction) {
+        handleKeyboardAction(action, nextTab: selectNextTab, previousTab: selectPreviousTab)
+    }
+
+    private func handleCaptureKeyboardAction(_ action: BrowserKeyboardAction) {
+        switch action {
+        case .nextHorizontalNavigation:
+            selectNextDeveloperToolsTabOrWorkspace()
+        case .previousHorizontalNavigation:
+            selectPreviousDeveloperToolsTabOrWorkspace()
+        case .submitSelection:
+            submitHistorySearch()
+        case .focusFilter:
+            focusHistoryFilter()
+        default:
+            handleKeyboardAction(
+                action,
+                nextTab: selectNextTabOrDeveloperToolsSelection,
+                previousTab: selectPreviousTabOrDeveloperToolsSelection
+            )
+        }
+    }
+
+    private func handleKeyboardAction(
+        _ action: BrowserKeyboardAction,
+        nextTab: () -> Void,
+        previousTab: () -> Void
+    ) {
+        switch action {
+        case .newWorkspace:
+            createNewWorkspace()
+        case .newTab:
+            createNewTab()
+        case .closeWorkspace:
+            closeCurrentWorkspace()
+        case .closeTab:
+            closeCurrentTab()
+        case .reopenClosedTab:
+            reopenClosedTabInCurrentWorkspace()
+        case .nextWorkspace:
+            selectNextWorkspace()
+        case .previousWorkspace:
+            selectPreviousWorkspace()
+        case .nextTab:
+            nextTab()
+        case .previousTab:
+            previousTab()
+        case .nextHorizontalNavigation:
+            selectNextWorkspace()
+        case .previousHorizontalNavigation:
+            selectPreviousWorkspace()
+        case .moveTabToNextWorkspace:
+            moveCurrentTabToNextWorkspace()
+        case .moveTabToPreviousWorkspace:
+            moveCurrentTabToPreviousWorkspace()
+        case .moveTabDown:
+            moveCurrentTabDown()
+        case .moveTabUp:
+            moveCurrentTabUp()
+        case .toggleSidebar:
+            toggleSidebar()
+        case .toggleSpotlight:
+            toggleSpotlight()
+        case .toggleCommandPalette:
+            toggleCommandPalette()
+        case .toggleFind:
+            toggleFind()
+        case .toggleHistory:
+            toggleHistory()
+        case .toggleSettings:
+            toggleSettings()
+        case .toggleNetworkTools:
+            toggleNetworkTools()
+        case .submitSelection:
+            submitHistorySearch()
+        case .focusFilter:
+            focusHistoryFilter()
+        case .dismissOverlay:
+            dismissSpotlight()
+        case .goBack:
+            goBack()
+        case .goForward:
+            goForward()
+        case .reload:
+            reload()
+        case .zoomIn:
+            zoomIn()
+        case .zoomOut:
+            zoomOut()
         }
     }
 

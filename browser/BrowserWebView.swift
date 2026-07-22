@@ -8,32 +8,7 @@ import SwiftUI
 import WebKit
 
 final class BrowserWKWebView: WKWebView {
-    var onNewWorkspace: (() -> Void)?
-    var onNewTab: (() -> Void)?
-    var onCloseWorkspace: (() -> Void)?
-    var onCloseTab: (() -> Void)?
-    var onReopenClosedTab: (() -> Void)?
-    var onNextWorkspace: (() -> Void)?
-    var onPreviousWorkspace: (() -> Void)?
-    var onNextTab: (() -> Void)?
-    var onPreviousTab: (() -> Void)?
-    var onMoveTabToNextWorkspace: (() -> Void)?
-    var onMoveTabToPreviousWorkspace: (() -> Void)?
-    var onMoveTabDown: (() -> Void)?
-    var onMoveTabUp: (() -> Void)?
-    var onToggleSidebar: (() -> Void)?
-    var onToggleSpotlight: (() -> Void)?
-    var onToggleCommandPalette: (() -> Void)?
-    var onToggleFind: (() -> Void)?
-    var onToggleHistory: (() -> Void)?
-    var onToggleSettings: (() -> Void)?
-    var onDismissOverlay: (() -> Void)?
-    var onGoBackShortcut: (() -> Void)?
-    var onGoForwardShortcut: (() -> Void)?
-    var onReloadShortcut: (() -> Void)?
-    var onZoomInShortcut: (() -> Void)?
-    var onZoomOutShortcut: (() -> Void)?
-    var onToggleNetworkTools: (() -> Void)?
+    var handleKeyboardAction: ((BrowserKeyboardAction) -> Void)?
     var isSidebarNavigationEnabled = false
     var shortcuts = BrowserShortcutStore.defaults
 
@@ -91,107 +66,111 @@ final class BrowserWKWebView: WKWebView {
     }
 
     @objc private func handleNewTab(_ sender: UIKeyCommand) {
-        onNewTab?()
+        dispatch(.newTab)
     }
 
     @objc private func handleNewWorkspace(_ sender: UIKeyCommand) {
-        onNewWorkspace?()
+        dispatch(.newWorkspace)
     }
 
     @objc private func handleCloseTab(_ sender: UIKeyCommand) {
-        onCloseTab?()
+        dispatch(.closeTab)
     }
 
     @objc private func handleReopenClosedTab(_ sender: UIKeyCommand) {
-        onReopenClosedTab?()
+        dispatch(.reopenClosedTab)
     }
 
     @objc private func handleCloseWorkspace(_ sender: UIKeyCommand) {
-        onCloseWorkspace?()
+        dispatch(.closeWorkspace)
     }
 
     @objc private func handleNextTab(_ sender: UIKeyCommand) {
-        onNextTab?()
+        dispatch(.nextTab)
     }
 
     @objc private func handlePreviousTab(_ sender: UIKeyCommand) {
-        onPreviousTab?()
+        dispatch(.previousTab)
     }
 
     @objc private func handleMoveTabToNextWorkspace(_ sender: UIKeyCommand) {
-        onMoveTabToNextWorkspace?()
+        dispatch(.moveTabToNextWorkspace)
     }
 
     @objc private func handleMoveTabToPreviousWorkspace(_ sender: UIKeyCommand) {
-        onMoveTabToPreviousWorkspace?()
+        dispatch(.moveTabToPreviousWorkspace)
     }
 
     @objc private func handleMoveTabDown(_ sender: UIKeyCommand) {
-        onMoveTabDown?()
+        dispatch(.moveTabDown)
     }
 
     @objc private func handleMoveTabUp(_ sender: UIKeyCommand) {
-        onMoveTabUp?()
+        dispatch(.moveTabUp)
     }
 
     @objc private func handleNextWorkspace(_ sender: UIKeyCommand) {
-        onNextWorkspace?()
+        dispatch(.nextWorkspace)
     }
 
     @objc private func handlePreviousWorkspace(_ sender: UIKeyCommand) {
-        onPreviousWorkspace?()
+        dispatch(.previousWorkspace)
     }
 
     @objc private func handleSidebarToggle(_ sender: UIKeyCommand) {
-        onToggleSidebar?()
+        dispatch(.toggleSidebar)
     }
 
     @objc private func handleSpotlightToggle(_ sender: UIKeyCommand) {
-        onToggleSpotlight?()
+        dispatch(.toggleSpotlight)
     }
 
     @objc private func handleCommandPaletteToggle(_ sender: UIKeyCommand) {
-        onToggleCommandPalette?()
+        dispatch(.toggleCommandPalette)
     }
 
     @objc private func handleFindToggle(_ sender: UIKeyCommand) {
-        onToggleFind?()
+        dispatch(.toggleFind)
     }
 
     @objc private func handleHistoryToggle(_ sender: UIKeyCommand) {
-        onToggleHistory?()
+        dispatch(.toggleHistory)
     }
 
     @objc private func handleSettingsToggle(_ sender: UIKeyCommand) {
-        onToggleSettings?()
+        dispatch(.toggleSettings)
     }
 
     @objc private func handleDismiss(_ sender: UIKeyCommand) {
-        onDismissOverlay?()
+        dispatch(.dismissOverlay)
     }
 
     @objc private func handleGoBack(_ sender: UIKeyCommand) {
-        onGoBackShortcut?()
+        dispatch(.goBack)
     }
 
     @objc private func handleGoForward(_ sender: UIKeyCommand) {
-        onGoForwardShortcut?()
+        dispatch(.goForward)
     }
 
     @objc private func handleReload(_ sender: UIKeyCommand) {
-        onReloadShortcut?()
+        dispatch(.reload)
     }
 
     @objc private func handleZoomIn(_ sender: UIKeyCommand) {
-        onZoomInShortcut?()
+        dispatch(.zoomIn)
     }
 
     @objc private func handleZoomOut(_ sender: UIKeyCommand) {
-        onZoomOutShortcut?()
+        dispatch(.zoomOut)
     }
 
     @objc private func handleNetworkToolsToggle(_ sender: UIKeyCommand) {
-        onToggleNetworkTools?()
+        dispatch(.toggleNetworkTools)
+    }
+
+    private func dispatch(_ action: BrowserKeyboardAction) {
+        handleKeyboardAction?(action)
     }
 }
 
@@ -1661,32 +1640,7 @@ struct BrowserWebView: UIViewRepresentable {
     let navigationController: BrowserNavigationController
     let focusRequestID: Int?
     let isSidebarNavigationEnabled: Bool
-    let onNewWorkspace: () -> Void
-    let onNewTab: () -> Void
-    let onCloseWorkspace: () -> Void
-    let onCloseTab: () -> Void
-    let onReopenClosedTab: () -> Void
-    let onNextWorkspace: () -> Void
-    let onPreviousWorkspace: () -> Void
-    let onNextTab: () -> Void
-    let onPreviousTab: () -> Void
-    let onMoveTabToNextWorkspace: () -> Void
-    let onMoveTabToPreviousWorkspace: () -> Void
-    let onMoveTabDown: () -> Void
-    let onMoveTabUp: () -> Void
-    let onToggleSidebar: () -> Void
-    let onToggleSpotlight: () -> Void
-    let onToggleCommandPalette: () -> Void
-    let onToggleFind: () -> Void
-    let onToggleHistory: () -> Void
-    let onToggleSettings: () -> Void
-    let onToggleNetworkTools: () -> Void
-    let onDismissOverlay: () -> Void
-    let onGoBack: () -> Void
-    let onGoForward: () -> Void
-    let onReload: () -> Void
-    let onZoomIn: () -> Void
-    let onZoomOut: () -> Void
+    let handleKeyboardAction: (BrowserKeyboardAction) -> Void
     let onPageTitleChange: () -> Void
     let shortcuts: [BrowserShortcutAction: BrowserShortcut]
 
@@ -1767,32 +1721,7 @@ struct BrowserWebView: UIViewRepresentable {
     }
 
     private func configureShortcuts(for webView: BrowserWKWebView) {
-        webView.onNewWorkspace = onNewWorkspace
-        webView.onNewTab = onNewTab
-        webView.onCloseWorkspace = onCloseWorkspace
-        webView.onCloseTab = onCloseTab
-        webView.onReopenClosedTab = onReopenClosedTab
-        webView.onNextWorkspace = onNextWorkspace
-        webView.onPreviousWorkspace = onPreviousWorkspace
-        webView.onNextTab = onNextTab
-        webView.onPreviousTab = onPreviousTab
-        webView.onMoveTabToNextWorkspace = onMoveTabToNextWorkspace
-        webView.onMoveTabToPreviousWorkspace = onMoveTabToPreviousWorkspace
-        webView.onMoveTabDown = onMoveTabDown
-        webView.onMoveTabUp = onMoveTabUp
-        webView.onToggleSidebar = onToggleSidebar
-        webView.onToggleSpotlight = onToggleSpotlight
-        webView.onToggleCommandPalette = onToggleCommandPalette
-        webView.onToggleFind = onToggleFind
-        webView.onToggleHistory = onToggleHistory
-        webView.onToggleSettings = onToggleSettings
-        webView.onToggleNetworkTools = onToggleNetworkTools
-        webView.onDismissOverlay = onDismissOverlay
-        webView.onGoBackShortcut = onGoBack
-        webView.onGoForwardShortcut = onGoForward
-        webView.onReloadShortcut = onReload
-        webView.onZoomInShortcut = onZoomIn
-        webView.onZoomOutShortcut = onZoomOut
+        webView.handleKeyboardAction = handleKeyboardAction
         webView.isSidebarNavigationEnabled = isSidebarNavigationEnabled
         webView.shortcuts = shortcuts
     }
@@ -1993,32 +1922,7 @@ extension BrowserWebView {
         navigationController: BrowserNavigationController(),
         focusRequestID: nil,
         isSidebarNavigationEnabled: false,
-        onNewWorkspace: {},
-        onNewTab: {},
-        onCloseWorkspace: {},
-        onCloseTab: {},
-        onReopenClosedTab: {},
-        onNextWorkspace: {},
-        onPreviousWorkspace: {},
-        onNextTab: {},
-        onPreviousTab: {},
-        onMoveTabToNextWorkspace: {},
-        onMoveTabToPreviousWorkspace: {},
-        onMoveTabDown: {},
-        onMoveTabUp: {},
-        onToggleSidebar: {},
-        onToggleSpotlight: {},
-        onToggleCommandPalette: {},
-        onToggleFind: {},
-        onToggleHistory: {},
-        onToggleSettings: {},
-        onToggleNetworkTools: {},
-        onDismissOverlay: {},
-        onGoBack: {},
-        onGoForward: {},
-        onReload: {},
-        onZoomIn: {},
-        onZoomOut: {},
+        handleKeyboardAction: { _ in },
         onPageTitleChange: {},
         shortcuts: BrowserShortcutStore.defaults
     )

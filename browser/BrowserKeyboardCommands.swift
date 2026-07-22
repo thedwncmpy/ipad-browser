@@ -5,6 +5,39 @@
 
 import UIKit
 
+enum BrowserKeyboardAction {
+    case newWorkspace
+    case newTab
+    case closeWorkspace
+    case closeTab
+    case reopenClosedTab
+    case nextWorkspace
+    case previousWorkspace
+    case nextTab
+    case previousTab
+    case nextHorizontalNavigation
+    case previousHorizontalNavigation
+    case moveTabToNextWorkspace
+    case moveTabToPreviousWorkspace
+    case moveTabDown
+    case moveTabUp
+    case toggleSidebar
+    case toggleSpotlight
+    case toggleCommandPalette
+    case toggleFind
+    case toggleHistory
+    case toggleSettings
+    case toggleNetworkTools
+    case submitSelection
+    case focusFilter
+    case dismissOverlay
+    case goBack
+    case goForward
+    case reload
+    case zoomIn
+    case zoomOut
+}
+
 enum BrowserKeyboardCommands {
     static func makeKeyCommands(
         newWorkspaceSelector: Selector,
